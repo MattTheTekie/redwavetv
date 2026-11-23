@@ -5,7 +5,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-library.db", null, 2) {
+class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-library.db", null, 3) {
     init { setWriteAheadLoggingEnabled(true) }
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE tracks (path TEXT PRIMARY KEY, title TEXT NOT NULL, folder TEXT NOT NULL, artist TEXT NOT NULL, album TEXT NOT NULL, artwork TEXT NOT NULL)")
@@ -13,8 +13,23 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         db.execSQL("CREATE INDEX tracks_folder_idx ON tracks(folder)")
         db.execSQL("CREATE INDEX tracks_album_idx ON tracks(album)")
         db.execSQL("CREATE TABLE scan_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, depth INTEGER NOT NULL)")
+        db.execSQL("CREATE TABLE scan_state (id INTEGER PRIMARY KEY CHECK(id=1), base TEXT NOT NULL, status TEXT NOT NULL, visited INTEGER NOT NULL DEFAULT 0, discovered INTEGER NOT NULL DEFAULT 0)")
     }
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) { if (oldVersion < 2) db.execSQL("CREATE TABLE IF NOT EXISTS scan_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, depth INTEGER NOT NULL)") }
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) { if (oldVersion < 2) db.execSQL("CREATE TABLE IF NOT EXISTS scan_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, depth INTEGER NOT NULL)"); if (oldVersion < 3) db.execSQL("CREATE TABLE IF NOT EXISTS scan_state (id INTEGER PRIMARY KEY CHECK(id=1), base TEXT NOT NULL, status TEXT NOT NULL, visited INTEGER NOT NULL DEFAULT 0, discovered INTEGER NOT NULL DEFAULT 0)") }
+    override fun onConfigure(db: SQLiteDatabase) { super.onConfigure(db); db.execSQL("PRAGMA cache_size=-2048"); db.execSQL("PRAGMA temp_store=FILE"); db.execSQL("PRAGMA mmap_size=0") }
+    @Synchronized fun startOrResumeScan(base: String): Boolean {
+        val db = writableDatabase
+        val previous = db.rawQuery("SELECT base,status FROM scan_state WHERE id=1", null).use { c -> if (c.moveToFirst()) Pair(c.getString(0), c.getString(1)) else null }
+        val queued = db.rawQuery("SELECT COUNT(*) FROM scan_queue", null).use { c -> c.moveToFirst(); c.getLong(0) }
+        val resume = previous?.first == base && previous.second != "COMPLETE" && queued > 0
+        if (!resume) { db.delete("scan_queue", null, null); enqueueDirectory(base, 0) }
+        val values = ContentValues().apply { put("base", base); put("status", "RUNNING") }
+        db.insertWithOnConflict("scan_state", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+        return resume
+    }
+    @Synchronized fun updateScanProgress(visited: Long, discovered: Long) { val v = ContentValues().apply { put("visited", visited); put("discovered", discovered) }; writableDatabase.update("scan_state", v, "id=1", null) }
+    @Synchronized fun finishScan(status: String, visited: Long, discovered: Long) { updateScanProgress(visited, discovered); val v = ContentValues().apply { put("status", status) }; writableDatabase.update("scan_state", v, "id=1", null); if (status == "COMPLETE") clearScanQueue() }
+    fun scanSummary(): String? = readableDatabase.rawQuery("SELECT status,visited,discovered FROM scan_state WHERE id=1", null).use { c -> if (c.moveToFirst()) "${c.getString(0)} • ${c.getLong(2)} tracks • ${c.getLong(1)} entries" else null }
     @Synchronized fun clearScanQueue() { writableDatabase.delete("scan_queue", null, null) }
     @Synchronized fun enqueueDirectory(path: String, depth: Int) { val v = ContentValues().apply { put("path", path); put("depth", depth) }; writableDatabase.insert("scan_queue", null, v) }
     @Synchronized fun dequeueDirectory(): Pair<String, Int>? {
