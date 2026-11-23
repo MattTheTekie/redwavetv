@@ -45,7 +45,7 @@ private const val WHITE = 0xFFF5F6FA.toInt()
 private const val MUTED = 0xFF9BA3B4.toInt()
 private const val GREEN = 0xFF55D6A0.toInt()
 
-data class Track(val title: String, val path: String, val folder: String)
+data class Track(val title: String, val path: String, val folder: String, val artist: String = "Unknown Artist", val album: String = "", val artworkPath: String = "")
 data class LyricLine(val timeMs: Long, val text: String)
 
 class MainActivity : AppCompatActivity() {
@@ -63,12 +63,15 @@ class MainActivity : AppCompatActivity() {
     private var lyricsStatus = "Choose a track to look for an .lrc file"
     private val lyricsHandler = Handler(Looper.getMainLooper())
     private val artCache = mutableMapOf<String, android.graphics.Bitmap?>()
+    private lateinit var libraryStore: LibraryStore
     private val securePrefs by lazy { androidx.security.crypto.EncryptedSharedPreferences.create(this, "redwave_secure", androidx.security.crypto.MasterKey.Builder(this).setKeyScheme(androidx.security.crypto.MasterKey.KeyScheme.AES256_GCM).build(), androidx.security.crypto.EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV, androidx.security.crypto.EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         player = ExoPlayer.Builder(this).build()
+        libraryStore = LibraryStore(this)
+        tracks.addAll(libraryStore.loadTracks())
         buildShell()
         restoreSavedShare()
         showHome()
@@ -562,6 +565,7 @@ class MainActivity : AppCompatActivity() {
             found.sortBy { it.title.lowercase() }
             tracks.clear()
             tracks.addAll(found)
+            libraryStore.replaceTracks(found)
             currentTrack = -1
             isScanning = false
             scanStatus = "Scan complete"
