@@ -133,9 +133,16 @@ class MainActivity : AppCompatActivity() {
         parent.addView(button(title, id == currentScreen, action), LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 7 })
     }
 
+    // Startup-safe database access: a damaged/old library must never prevent the TV UI opening.
+    private fun safeTrackCount(): Long = try { libraryStore.countTracks() } catch (_: Exception) { 0L }
+    private fun safeLoadTracks(limit: Int = 100, offset: Int = 0): List<Track> =
+        try { libraryStore.loadTracks(limit, offset) } catch (_: Exception) { emptyList() }
+    private fun safeLoadAlbumGroups(limit: Int): List<Pair<String, Long>> =
+        try { libraryStore.loadAlbumGroups(limit) } catch (_: Exception) { emptyList() }
+
     private fun updateStatus() {
         if (!::statusText.isInitialized) return
-        val indexedCount = if (::libraryStore.isInitialized) libraryStore.countTracks() else tracks.size
+        val indexedCount = if (::libraryStore.isInitialized) safeTrackCount() else tracks.size
         statusText.text = when {
             isScanning -> "SCANNING • " + indexedCount + " TRACKS"
             smbContext != null -> "CONNECTED • " + indexedCount + " TRACKS"
@@ -158,7 +165,7 @@ class MainActivity : AppCompatActivity() {
         }
         val heroCopy = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         heroCopy.addView(label("ALL YOUR MUSIC.\nONE BEAUTIFUL LIBRARY.", 25, WHITE, true), LinearLayout.LayoutParams(-1, 78))
-        heroCopy.addView(label(libraryStore.countTracks().toString() + " songs indexed  ·  browse folders anytime", 13, 0xFFE2D9E0.toInt()))
+        heroCopy.addView(label(safeTrackCount().toString() + " songs indexed  ·  browse folders anytime", 13, 0xFFE2D9E0.toInt()))
         heroCopy.addView(button(if (smbContext == null && currentShare.isNotBlank()) "CONNECT SAVED SHARE" else if (smbContext == null) "ADD MUSIC SHARE" else "SCAN LIBRARY", true) {
             if (smbContext != null) scanShare() else if (currentShare.isNotBlank()) connectSavedShare() else showSmbDialog()
         }, LinearLayout.LayoutParams(210, 44).apply { topMargin = 12 })
@@ -166,7 +173,7 @@ class MainActivity : AppCompatActivity() {
         hero.addView(label("♫", 86, 0xFFFFA4B5.toInt(), true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(150, 130))
         content.addView(hero, LinearLayout.LayoutParams(-1, 172).apply { topMargin = 10; bottomMargin = 18 })
         if (isScanning) content.addView(label("Scanning network library…  " + tracks.size + " found", 13, GREEN, true), LinearLayout.LayoutParams(-1, 36))
-        val folders = libraryStore.loadAlbumGroups(9).map { it.first to libraryStore.tracksInGroup(it.first, 1) }
+        val folders = safeLoadAlbumGroups(9).mapNotNull { group -> try { group.first to libraryStore.tracksInGroup(group.first, 1) } catch (_: Exception) { null } }
         if (folders.isNotEmpty()) {
             sectionTitle("ALBUMS", "SEE ALL") { showAlbums() }
             addArtworkGrid(folders)
@@ -269,7 +276,7 @@ class MainActivity : AppCompatActivity() {
         content.removeAllViews()
         content.addView(label("Albums & folders", 30, WHITE, true), LinearLayout.LayoutParams(-1, 48))
         content.addView(label("Your network music, arranged as visual collections.", 13, MUTED), LinearLayout.LayoutParams(-1, 32))
-        val groups = libraryStore.loadAlbumGroups(120).map { it.first to libraryStore.tracksInGroup(it.first, 1) }
+        val groups = safeLoadAlbumGroups(120).mapNotNull { group -> try { group.first to libraryStore.tracksInGroup(group.first, 1) } catch (_: Exception) { null } }
         if (groups.isEmpty()) showEmpty() else addArtworkGrid(groups)
         addNowPlaying()
     }
@@ -345,11 +352,11 @@ class MainActivity : AppCompatActivity() {
         currentScreen = "QUEUE"
         content.removeAllViews()
         content.addView(label("All tracks", 29, WHITE, true), LinearLayout.LayoutParams(-1, 58))
-        content.addView(label(libraryStore.countTracks().toString() + " tracks indexed • showing first " + tracks.size, 13, MUTED), LinearLayout.LayoutParams(-1, 34))
-        val page = libraryStore.loadTracks(limit = 100)
+        content.addView(label(safeTrackCount().toString() + " tracks indexed • showing first " + tracks.size, 13, MUTED), LinearLayout.LayoutParams(-1, 34))
+        val page = safeLoadTracks(limit = 100)
         if (page.isEmpty()) showEmpty()
         page.forEach { addTrackRow(it) }
-        if (libraryStore.countTracks() > page.size) content.addView(button("LOAD NEXT 100", false) { showQueuePage(100) }, LinearLayout.LayoutParams(220, 48))
+        if (safeTrackCount() > page.size) content.addView(button("LOAD NEXT 100", false) { showQueuePage(100) }, LinearLayout.LayoutParams(220, 48))
         addNowPlaying()
     }
 
@@ -357,9 +364,9 @@ class MainActivity : AppCompatActivity() {
         currentScreen = "QUEUE"
         content.removeAllViews()
         content.addView(label("All tracks", 29, WHITE, true), LinearLayout.LayoutParams(-1, 58))
-        val total = libraryStore.countTracks()
+        val total = safeTrackCount()
         content.addView(label("$total tracks indexed • page ${offset / 100 + 1}", 13, MUTED), LinearLayout.LayoutParams(-1, 34))
-        val page = libraryStore.loadTracks(limit = 100, offset = offset)
+        val page = safeLoadTracks(limit = 100, offset = offset)
         if (page.isEmpty()) showEmpty()
         page.forEach { addTrackRow(it) }
         if (offset > 0) content.addView(button("PREVIOUS 100", false) { showQueuePage((offset - 100).coerceAtLeast(0)) }, LinearLayout.LayoutParams(220, 48))
@@ -754,7 +761,7 @@ class MainActivity : AppCompatActivity() {
             }
             if (batch.isNotEmpty()) libraryStore.upsertBatch(batch)
             libraryStore.finishScan("COMPLETE", visited, discovered)
-            tracks.clear(); tracks.addAll(libraryStore.loadTracks(limit = 100))
+            tracks.clear(); tracks.addAll(safeLoadTracks(limit = 100))
             currentTrack = -1; isScanning = false
             scanStatus = "Scan complete • $discovered tracks"
             runOnUiThread { updateStatus(); refreshScreen(); toast("Indexed $discovered audio files. Browse folders for the complete library.") }
