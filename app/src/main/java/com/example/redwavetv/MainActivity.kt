@@ -158,7 +158,7 @@ class MainActivity : AppCompatActivity() {
         hero.addView(label("♫", 86, 0xFFFFA4B5.toInt(), true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(150, 130))
         content.addView(hero, LinearLayout.LayoutParams(-1, 172).apply { topMargin = 10; bottomMargin = 18 })
         if (isScanning) content.addView(label("Scanning network library…  " + tracks.size + " found", 13, GREEN, true), LinearLayout.LayoutParams(-1, 36))
-        val folders = tracks.groupBy { it.folder }.toList().sortedBy { it.first.trimEnd('/').substringAfterLast('/').lowercase() }
+        val folders = tracks.groupBy { it.album.ifBlank { it.folder.trimEnd('/').substringAfterLast('/') } }.toList().sortedBy { it.first.lowercase() }
         if (folders.isNotEmpty()) {
             sectionTitle("ALBUMS & FOLDERS", "SEE ALL") { showAlbums() }
             addArtworkGrid(folders.take(10))
@@ -207,7 +207,7 @@ class MainActivity : AppCompatActivity() {
                 card.addView(label(group.first.trimEnd('/').substringAfterLast('/').ifBlank { "Music" }, 13, WHITE, true), LinearLayout.LayoutParams(-1, 28))
                 card.addView(label(group.second.size.toString() + " songs", 11, MUTED), LinearLayout.LayoutParams(-1, 20))
                 row.addView(card, LinearLayout.LayoutParams(0, 174, 1f).apply { if (column < 2) rightMargin = 10; bottomMargin = 10 })
-                loadFolderArt(group.first, group.second.firstOrNull(), art)
+                loadFolderArt(group.second.firstOrNull()?.folder ?: group.first, group.second.firstOrNull(), art)
             }
             while (row.childCount < 3) row.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
             content.addView(row, LinearLayout.LayoutParams(-1, 180))
@@ -261,7 +261,7 @@ class MainActivity : AppCompatActivity() {
         content.removeAllViews()
         content.addView(label("Albums & folders", 30, WHITE, true), LinearLayout.LayoutParams(-1, 48))
         content.addView(label("Your network music, arranged as visual collections.", 13, MUTED), LinearLayout.LayoutParams(-1, 32))
-        val groups = tracks.groupBy { it.folder }.toList().sortedBy { it.first.lowercase() }
+        val groups = tracks.groupBy { it.album.ifBlank { it.folder.trimEnd('/').substringAfterLast('/') } }.toList().sortedBy { it.first.lowercase() }
         if (groups.isEmpty()) showEmpty() else addArtworkGrid(groups)
         addNowPlaying()
     }
