@@ -101,6 +101,10 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         val values = ContentValues().apply { put("path", path); put("played_at", System.currentTimeMillis()) }
         writableDatabase.insertWithOnConflict("play_history", null, values, SQLiteDatabase.CONFLICT_REPLACE)
     }
+    fun searchTracks(query: String, limit: Int = 100): List<Track> {
+        val q = "%${query.trim()}%"
+        return queryTrackRows("SELECT title,path,folder,artist,album,artwork FROM tracks WHERE title LIKE ? OR artist LIKE ? OR album LIKE ? OR folder LIKE ? ORDER BY title COLLATE NOCASE LIMIT ?", arrayOf(q,q,q,q,limit.toString()), limit)
+    }
     fun loadRecent(limit: Int = 100): List<Track> = queryTrackRows("SELECT t.title,t.path,t.folder,t.artist,t.album,t.artwork FROM tracks t INNER JOIN play_history h ON h.path=t.path ORDER BY h.played_at DESC LIMIT ?", arrayOf(limit.toString()), limit)
     fun loadFavorites(limit: Int = 100): List<Track> = queryTrackRows("SELECT t.title,t.path,t.folder,t.artist,t.album,t.artwork FROM tracks t INNER JOIN favorites f ON f.path=t.path ORDER BY t.title COLLATE NOCASE LIMIT ?", arrayOf(limit.toString()), limit)
     private fun queryTrackRows(sql: String, args: Array<String>, limit: Int): List<Track> {
