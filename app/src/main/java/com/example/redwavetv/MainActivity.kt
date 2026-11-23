@@ -56,6 +56,7 @@ class MainActivity : AppCompatActivity() {
     private var smbContext: CIFSContext? = null
     private var currentShare = ""
     private var currentTrack = -1
+    private var playingTrack: Track? = null
     private var isScanning = false
     private var scanStatus = "Not connected"
     private var currentScreen = "HOME"
@@ -364,7 +365,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun addNowPlaying() {
         val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(10, 5, 10, 5); background = rounded(SURFACE_HI, 10) }
-        val title = tracks.getOrNull(currentTrack)?.title ?: "Nothing playing"
+        val title = playingTrack?.title ?: tracks.getOrNull(currentTrack)?.title ?: "Nothing playing"
         bar.addView(label("NOW PLAYING   " + title, 12, WHITE, true), LinearLayout.LayoutParams(0, 48, 1f))
         bar.addView(button("|◀", false) { player.seekToPrevious() }, LinearLayout.LayoutParams(58, 46))
         bar.addView(button(if (player.isPlaying) "Ⅱ" else "▶", false) { if (player.isPlaying) player.pause() else player.play(); refreshScreen() }, LinearLayout.LayoutParams(58, 46))
@@ -386,7 +387,7 @@ class MainActivity : AppCompatActivity() {
     private fun showPlayer() {
         currentScreen = "PLAYER"
         content.removeAllViews()
-        val track = tracks.getOrNull(currentTrack)
+        val track = playingTrack ?: tracks.getOrNull(currentTrack)
         content.addView(label("NOW PLAYING", 12, RED, true), LinearLayout.LayoutParams(-1, 34))
         val art = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -696,7 +697,8 @@ class MainActivity : AppCompatActivity() {
     private fun playTrack(track: Track) {
         try {
             val ctx = smbContext ?: throw IllegalStateException("Connect to your SMB share first")
-            currentTrack = tracks.indexOfFirst { it.path == track.path }.coerceAtLeast(0)
+            currentTrack = tracks.indexOfFirst { it.path == track.path }
+            playingTrack = track
             currentLyrics = emptyList()
             lyricsStatus = "Choose a track to look for an .lrc file"
             val factory = DataSource.Factory { SmbStreamDataSource(ctx) }
