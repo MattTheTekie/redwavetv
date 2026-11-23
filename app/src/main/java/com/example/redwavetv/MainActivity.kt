@@ -372,21 +372,31 @@ class MainActivity : AppCompatActivity() {
     private fun addNowPlaying() {
         if (!::bottomPlayer.isInitialized) return
         bottomPlayer.removeAllViews()
-        val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(10, 2, 10, 2); background = rounded(SURFACE_HI, 10); isFocusable = false; descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS }
+        val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(8, 2, 8, 2); background = rounded(SURFACE_HI, 10); isFocusable = false; isClickable = false; descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS }
         val title = playingTrack?.title ?: tracks.getOrNull(currentTrack)?.title ?: "Nothing playing"
-        bar.addView(label("NOW PLAYING   " + title, 12, WHITE, true), LinearLayout.LayoutParams(0, 48, 1f))
-        val previous = button("|◀", false) { player.seekToPrevious() }.apply { id = View.generateViewId() }
-        val playPause = button(if (player.isPlaying) "Ⅱ" else "▶", false) { if (player.isPlaying) player.pause() else player.play(); refreshScreen() }.apply { id = View.generateViewId() }
-        val next = button("▶|", false) { player.seekToNext() }.apply { id = View.generateViewId() }
+        // The Now Playing target is its own large focusable control; the parent row
+        // must not intercept clicks intended for transport buttons.
+        val openPlayer = button("NOW PLAYING  ·  " + title, false) { showPlayer() }.apply {
+            id = View.generateViewId()
+            gravity = Gravity.CENTER_VERTICAL
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            nextFocusRightId = View.NO_ID
+        }
+        val previous = button("|◀", false) { player.seekToPrevious(); addNowPlaying() }.apply { id = View.generateViewId() }
+        val playPause = button(if (player.isPlaying) "Ⅱ" else "▶", false) { if (player.isPlaying) player.pause() else player.play(); addNowPlaying() }.apply { id = View.generateViewId() }
+        val next = button("▶|", false) { player.seekToNext(); addNowPlaying() }.apply { id = View.generateViewId() }
+        openPlayer.nextFocusRightId = previous.id
+        previous.nextFocusLeftId = openPlayer.id
         previous.nextFocusRightId = playPause.id
         playPause.nextFocusLeftId = previous.id
         playPause.nextFocusRightId = next.id
         next.nextFocusLeftId = playPause.id
-        previous.nextFocusUpId = View.NO_ID
+        next.nextFocusRightId = View.NO_ID
+        bar.addView(openPlayer, LinearLayout.LayoutParams(0, 48, 1f))
         bar.addView(previous, LinearLayout.LayoutParams(58, 46))
         bar.addView(playPause, LinearLayout.LayoutParams(58, 46))
         bar.addView(next, LinearLayout.LayoutParams(58, 46))
-        bar.setOnClickListener { showPlayer() }
         bottomPlayer.addView(bar, LinearLayout.LayoutParams(-1, 54))
     }
 
