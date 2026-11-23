@@ -50,6 +50,7 @@ data class LyricLine(val timeMs: Long, val text: String)
 
 class MainActivity : AppCompatActivity() {
     private lateinit var content: LinearLayout
+    private lateinit var bottomPlayer: LinearLayout
     private lateinit var statusText: TextView
     private lateinit var player: ExoPlayer
     private val tracks = mutableListOf<Track>()
@@ -72,10 +73,10 @@ class MainActivity : AppCompatActivity() {
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         player = ExoPlayer.Builder(this).build()
         libraryStore = LibraryStore(this)
-        tracks.addAll(libraryStore.loadTracks())
         buildShell()
-        restoreSavedShare()
+        try { tracks.addAll(libraryStore.loadTracks(limit = 250)) } catch (_: Exception) { scanStatus = "Library database unavailable" }
         showHome()
+        try { restoreSavedShare() } catch (_: Exception) { scanStatus = "Saved connection needs attention"; updateStatus() }
     }
 
     private fun buildShell() {
@@ -120,7 +121,10 @@ class MainActivity : AppCompatActivity() {
         content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 8, 24, 14) }
         val scroll = ScrollView(this).apply { isFillViewport = true; addView(content) }
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        bottomPlayer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(14, 6, 14, 6); setBackgroundColor(0xFF171A22.toInt()) }
+        root.addView(bottomPlayer, LinearLayout.LayoutParams(-1, 66))
         setContentView(root)
+        addNowPlaying()
     }
 
     private fun addNav(parent: LinearLayout, title: String, id: String, action: () -> Unit) {
@@ -153,9 +157,9 @@ class MainActivity : AppCompatActivity() {
         val heroCopy = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         heroCopy.addView(label("ALL YOUR MUSIC.\nONE BEAUTIFUL LIBRARY.", 25, WHITE, true), LinearLayout.LayoutParams(-1, 78))
         heroCopy.addView(label(libraryStore.countTracks().toString() + " songs indexed  ·  browse folders anytime", 13, 0xFFE2D9E0.toInt()))
-        heroCopy.addView(button(if (smbContext == null) "ADD MUSIC SHARE" else "SCAN LIBRARY", true) {
-            if (smbContext == null) showSmbDialog() else scanShare()
-        }, LinearLayout.LayoutParams(190, 44).apply { topMargin = 12 })
+        heroCopy.addView(button(if (smbContext == null && securePrefs.getString("share", null) != null) "CONNECT SAVED SHARE" else if (smbContext == null) "ADD MUSIC SHARE" else "SCAN LIBRARY", true) {
+            if (smbContext != null) scanShare() else if (securePrefs.getString("share", null) != null) connectSavedShare() else showSmbDialog()
+        }, LinearLayout.LayoutParams(210, 44).apply { topMargin = 12 })
         hero.addView(heroCopy, LinearLayout.LayoutParams(0, -2, 1f))
         hero.addView(label("♫", 86, 0xFFFFA4B5.toInt(), true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(150, 130))
         content.addView(hero, LinearLayout.LayoutParams(-1, 172).apply { topMargin = 10; bottomMargin = 18 })
@@ -365,13 +369,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun addNowPlaying() {
-        val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(10, 5, 10, 5); background = rounded(SURFACE_HI, 10) }
+        if (!::bottomPlayer.isInitialized) return
+        bottomPlayer.removeAllViews()
+        val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(10, 2, 10, 2); background = rounded(SURFACE_HI, 10) }
         val title = playingTrack?.title ?: tracks.getOrNull(currentTrack)?.title ?: "Nothing playing"
         bar.addView(label("NOW PLAYING   " + title, 12, WHITE, true), LinearLayout.LayoutParams(0, 48, 1f))
         bar.addView(button("|◀", false) { player.seekToPrevious() }, LinearLayout.LayoutParams(58, 46))
         bar.addView(button(if (player.isPlaying) "Ⅱ" else "▶", false) { if (player.isPlaying) player.pause() else player.play(); refreshScreen() }, LinearLayout.LayoutParams(58, 46))
         bar.addView(button("▶|", false) { player.seekToNext() }, LinearLayout.LayoutParams(58, 46))
-        content.addView(bar, LinearLayout.LayoutParams(-1, 60).apply { topMargin = 16; bottomMargin = 8 })
+        bar.setOnClickListener { showPlayer() }
+        bar.isFocusable = true
+        bottomPlayer.addView(bar, LinearLayout.LayoutParams(-1, 54))
     }
 
     private fun refreshScreen() {
@@ -526,12 +534,22 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun restoreSavedShare() {
-        val share = securePrefs.getString("share", null) ?: return
-        val username = securePrefs.getString("username", "") ?: ""
-        val password = securePrefs.getString("password", "") ?: ""
-        val domain = securePrefs.getString("domain", "") ?: ""
-        currentShare = share
-        connectAndScan(username, password, domain, false)
+        currentShare = securePrefs.getString("share", null) ?: return
+        scanStatus = "Saved share • not connected"
+        updateStatus()
+    }
+
+    private fun connectSavedShare() {
+        try {
+            currentShare = securePrefs.getString("share", null) ?: run { showSmbDialog(); return }
+            val username = securePrefs.getString("username", "") ?: ""
+            val password = securePrefs.getString("password", "") ?: ""
+            val domain = securePrefs.getString("domain", "") ?: ""
+            connectAndScan(username, password, domain, false)
+        } catch (_: Exception) {
+            toast("Could not read saved SMB login. Please reconnect.")
+            showSmbDialog()
+        }
     }
 
     private fun showSmbDialog() {
@@ -597,7 +615,7 @@ class MainActivity : AppCompatActivity() {
                 // A real listing validates credentials and share access; creating SmbFile alone does not.
                 val directory = SmbFile(base, ctx)
                 if (!directory.exists() || !directory.isDirectory) throw IllegalStateException("Share or folder not found: " + base)
-                directory.listFiles()
+                // Avoid loading a potentially huge share listing just to connect.
                 smbContext = ctx
                 if (startScan) performScan(base, ctx) else {
                     isScanning = false
