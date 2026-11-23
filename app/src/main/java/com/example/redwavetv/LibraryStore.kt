@@ -108,6 +108,10 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         readableDatabase.rawQuery(sql, args).use { c -> while (c.moveToNext()) result.add(Track(c.getString(0),c.getString(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5))) }
         return result
     }
+    @Synchronized fun updateTrackMetadata(track: Track) {
+        val values = ContentValues().apply { put("title", track.title); put("artist", track.artist); put("album", track.album); put("artwork", track.artworkPath) }
+        writableDatabase.update("tracks", values, "path=?", arrayOf(track.path))
+    }
     fun replaceTracks(tracks: List<Track>) {
         clearTracks()
         upsertBatch(tracks)
