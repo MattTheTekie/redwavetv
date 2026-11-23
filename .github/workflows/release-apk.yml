@@ -27,6 +27,9 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install Android 34 SDK components
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
+
       - name: Install Gradle 8.2
         uses: gradle/actions/setup-gradle@v4
         with:
