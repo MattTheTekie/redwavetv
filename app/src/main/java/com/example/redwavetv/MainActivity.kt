@@ -737,6 +737,7 @@ class MainActivity : AppCompatActivity() {
                                 }
                             } catch (_: Exception) { }
                             if (visited % 2000L == 0L) {
+                                libraryStore.updateScanProgress(visited, discovered)
                                 val count = discovered
                                 runOnUiThread { if (::statusText.isInitialized) statusText.text = "SCANNING • $count TRACKS" }
                             }
