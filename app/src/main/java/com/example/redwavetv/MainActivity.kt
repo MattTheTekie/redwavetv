@@ -41,7 +41,8 @@ private const val WHITE = 0xFFF5F6FA.toInt()
 private const val MUTED = 0xFF9BA3B4.toInt()
 private const val GREEN = 0xFF55D6A0.toInt()
 
-data class Track(val title: String, val path: String, val folder: String)\ndata class LyricLine(val timeMs: Long, val text: String)
+data class Track(val title: String, val path: String, val folder: String)
+data class LyricLine(val timeMs: Long, val text: String)
 
 class MainActivity : AppCompatActivity() {
     private lateinit var content: LinearLayout
@@ -312,7 +313,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         lyricsHandler.post(updater)
-        if (lyricsStatus.startsWith("Choose") || lyricsStatus.startsWith("No ")) loadLyrics(track, false)
+        if (lyricsStatus == "Choose a track to look for an .lrc file") loadLyrics(track, false)
     }
 
     private fun loadLyrics(track: Track, force: Boolean) {
@@ -464,7 +465,9 @@ class MainActivity : AppCompatActivity() {
         try {
             val ctx = smbContext ?: throw IllegalStateException("Connect to your SMB share first")
             currentTrack = tracks.indexOfFirst { it.path == track.path }.coerceAtLeast(0)
-            currentLyrics = emptyList()\n            lyricsStatus = "Choose a track to look for an .lrc file"\n            val factory = DataSource.Factory { SmbStreamDataSource(ctx) }
+            currentLyrics = emptyList()
+            lyricsStatus = "Choose a track to look for an .lrc file"
+            val factory = DataSource.Factory { SmbStreamDataSource(ctx) }
             val source = ProgressiveMediaSource.Factory(factory).createMediaSource(MediaItem.fromUri(track.path))
             player.setMediaSource(source)
             player.prepare()
