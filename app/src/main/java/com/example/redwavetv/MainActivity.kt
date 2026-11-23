@@ -221,11 +221,15 @@ class MainActivity : AppCompatActivity() {
                 return
             }
         }
-        val ctx = smbContext ?: return
         thread(name = "redwave-art") {
             var bitmap: android.graphics.Bitmap? = null
             try {
-                for (name in listOf("cover.jpg", "folder.jpg", "album.jpg", "front.jpg", "cover.png", "folder.png")) {
+                if (sample != null && sample.artworkPath.isNotBlank()) {
+                    val embedded = File(sample.artworkPath)
+                    if (embedded.exists()) bitmap = BitmapFactory.decodeFile(embedded.absolutePath)
+                }
+                val ctx = smbContext
+                if (bitmap == null && ctx != null) for (name in listOf("cover.jpg", "folder.jpg", "album.jpg", "front.jpg", "cover.png", "folder.png")) {
                     try {
                         val image = SmbFile(folder.trimEnd('/') + "/" + name, ctx)
                         if (image.exists() && image.isFile) {
@@ -234,7 +238,7 @@ class MainActivity : AppCompatActivity() {
                         }
                     } catch (_: Exception) {}
                 }
-                if (bitmap == null && sample != null) {
+                if (bitmap == null && sample != null && ctx != null) {
                     val temp = File(cacheDir, "art_" + sample.path.hashCode() + ".audio")
                     try {
                         SmbFileInputStream(SmbFile(sample.path, ctx)).use { input -> temp.outputStream().use { output -> input.copyTo(output) } }
