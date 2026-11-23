@@ -699,7 +699,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun performScan(base: String, ctx: CIFSContext) {
-        // Bounded-memory indexing: do not read whole tracks into RAM or extract tags during scan.
+        // Bounded-memory indexing: stream one directory at a time and persist queue/batches in SQLite. Do not extract tags during scan.
         val resumed = libraryStore.startOrResumeScan(base)
         val savedProgress = libraryStore.scanProgress()
         var visited = if (resumed) savedProgress.first else 0L
@@ -745,7 +745,11 @@ class MainActivity : AppCompatActivity() {
                     } finally {
                         try { iterator.close() } catch (_: Exception) { }
                     }
-                } catch (_: Exception) { }
+                } catch (directoryError: Exception) {
+                    // Keep this directory queued. A transient SMB error must not silently
+                    // mark an unread directory complete; stop and resume it on the next scan.
+                    throw directoryError
+                }
                 libraryStore.completeDirectory(url)
             }
             if (batch.isNotEmpty()) libraryStore.upsertBatch(batch)
