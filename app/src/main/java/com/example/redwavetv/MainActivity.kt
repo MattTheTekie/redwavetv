@@ -160,7 +160,7 @@ class MainActivity : AppCompatActivity() {
         if (isScanning) content.addView(label("Scanning network library…  " + tracks.size + " found", 13, GREEN, true), LinearLayout.LayoutParams(-1, 36))
         val folders = tracks.groupBy { it.album.ifBlank { it.folder.trimEnd('/').substringAfterLast('/') } }.toList().sortedBy { it.first.lowercase() }
         if (folders.isNotEmpty()) {
-            sectionTitle("ALBUMS & FOLDERS", "SEE ALL") { showAlbums() }
+            sectionTitle("ALBUMS", "SEE ALL") { showAlbums() }
             addArtworkGrid(folders.take(10))
         } else if (!isScanning) {
             val empty = panel()
@@ -315,7 +315,7 @@ class MainActivity : AppCompatActivity() {
         row.addView(label("♫", 22, RED, true), LinearLayout.LayoutParams(44, 48))
         val names = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL }
         names.addView(label(track.title, 15, WHITE, true))
-        names.addView(label(track.folder.trimEnd('/').substringAfterLast('/'), 11, MUTED))
+        names.addView(label(track.artist + if (track.album.isNotBlank()) " · " + track.album else " · " + track.folder.trimEnd('/').substringAfterLast('/'), 11, MUTED))
         row.addView(names, LinearLayout.LayoutParams(0, 54, 1f))
         row.addView(label("▶", 15, MUTED, true))
         content.addView(row, LinearLayout.LayoutParams(-1, 62).apply { bottomMargin = 6 })
