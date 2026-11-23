@@ -334,6 +334,20 @@ class MainActivity : AppCompatActivity() {
         addNowPlaying()
     }
 
+    private fun showQueuePage(offset: Int) {
+        currentScreen = "QUEUE"
+        content.removeAllViews()
+        content.addView(label("All tracks", 29, WHITE, true), LinearLayout.LayoutParams(-1, 58))
+        val total = libraryStore.countTracks()
+        content.addView(label("$total tracks indexed • page ${offset / 100 + 1}", 13, MUTED), LinearLayout.LayoutParams(-1, 34))
+        val page = libraryStore.loadTracks(limit = 100, offset = offset)
+        if (page.isEmpty()) showEmpty()
+        page.forEach { addTrackRow(it) }
+        if (offset > 0) content.addView(button("PREVIOUS 100", false) { showQueuePage((offset - 100).coerceAtLeast(0)) }, LinearLayout.LayoutParams(220, 48))
+        if (offset + page.size < total) content.addView(button("NEXT 100", false) { showQueuePage(offset + 100) }, LinearLayout.LayoutParams(220, 48))
+        addNowPlaying()
+    }
+
     private fun showTrackList(title: String, songs: List<Track>) {
         content.removeAllViews()
         content.addView(label(title, 27, WHITE, true), LinearLayout.LayoutParams(-1, 58))
