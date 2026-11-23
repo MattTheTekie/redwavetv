@@ -7,6 +7,9 @@ import android.os.Bundle
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
+import android.os.Handler
+import android.os.Looper
+import android.widget.SeekBar
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -38,7 +41,7 @@ private const val WHITE = 0xFFF5F6FA.toInt()
 private const val MUTED = 0xFF9BA3B4.toInt()
 private const val GREEN = 0xFF55D6A0.toInt()
 
-data class Track(val title: String, val path: String, val folder: String)
+data class Track(val title: String, val path: String, val folder: String)\ndata class LyricLine(val timeMs: Long, val text: String)
 
 class MainActivity : AppCompatActivity() {
     private lateinit var content: LinearLayout
@@ -51,6 +54,9 @@ class MainActivity : AppCompatActivity() {
     private var isScanning = false
     private var scanStatus = "Not connected"
     private var currentScreen = "HOME"
+    private var currentLyrics: List<LyricLine> = emptyList()
+    private var lyricsStatus = "Choose a track to look for an .lrc file"
+    private val lyricsHandler = Handler(Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,30 +67,47 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun buildShell() {
-        val root = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setBackgroundColor(BG) }
-        val nav = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(18, 24, 14, 18); setBackgroundColor(0xFF10131A.toInt()) }
-        nav.addView(label("REDWAVE", 25, RED, true), LinearLayout.LayoutParams(-1, 58))
-        nav.addView(label("MUSIC FOR YOUR LIVING ROOM", 9, MUTED, true), LinearLayout.LayoutParams(-1, 38))
-        addNav(nav, "⌂   HOME", "HOME") { showHome() }
-        addNav(nav, "▦   ALBUMS", "ALBUMS") { showAlbums() }
-        addNav(nav, "▤   FOLDERS", "FOLDERS") { showFolders() }
-        addNav(nav, "☷   ALL TRACKS", "QUEUE") { showQueue() }
-        nav.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
-        nav.addView(label("NETWORK LIBRARY", 10, MUTED, true), LinearLayout.LayoutParams(-1, 34))
-        addNav(nav, "＋   ADD SMB SHARE", "SMB") { showSmbDialog() }
-        addNav(nav, "↻   RESCAN", "RESCAN") { scanShare() }
-        root.addView(nav, LinearLayout.LayoutParams(218, -1))
-
-        val main = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(26, 16, 26, 12) }
-        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        top.addView(label("REDWAVE  /  YOUR MUSIC", 12, MUTED, true), LinearLayout.LayoutParams(0, 42, 1f))
-        statusText = label(scanStatus, 11, GREEN, true).apply { gravity = Gravity.CENTER; setPadding(14, 0, 14, 0); background = rounded(SURFACE, 18) }
-        top.addView(statusText, LinearLayout.LayoutParams(-2, 32))
-        main.addView(top)
-        content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(BG) }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(22, 10, 22, 8)
+            setBackgroundColor(0xFF10131A.toInt())
+        }
+        val brand = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        brand.addView(label("REDWAVE", 23, RED, true))
+        brand.addView(label("MUSIC", 9, MUTED, true))
+        header.addView(brand, LinearLayout.LayoutParams(145, 54))
+        val tabs = listOf(
+            Triple("⌂  LISTEN", "HOME") { showHome() },
+            Triple("▦  ALBUMS", "ALBUMS") { showAlbums() },
+            Triple("♫  SONGS", "QUEUE") { showQueue() },
+            Triple("▤  FOLDERS", "FOLDERS") { showFolders() },
+            Triple("♪  LYRICS", "LYRICS") { showLyrics() },
+            Triple("▶  PLAYER", "PLAYER") { showPlayer() },
+            Triple("＋  SMB", "SMB") { showSmbDialog() }
+        )
+        tabs.forEach { tab ->
+            header.addView(button(tab.first, currentScreen == tab.second) { tab.third() },
+                LinearLayout.LayoutParams(0, 48, 1f).apply { leftMargin = 4; rightMargin = 4 })
+        }
+        root.addView(header, LinearLayout.LayoutParams(-1, 72))
+        val top = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(24, 0, 24, 0)
+        }
+        top.addView(label("YOUR LIBRARY", 11, MUTED, true), LinearLayout.LayoutParams(0, 34, 1f))
+        statusText = label(scanStatus, 11, GREEN, true).apply {
+            gravity = Gravity.CENTER
+            setPadding(12, 0, 12, 0)
+            background = rounded(SURFACE, 18)
+        }
+        top.addView(statusText, LinearLayout.LayoutParams(-2, 30))
+        root.addView(top)
+        content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 8, 24, 14) }
         val scroll = ScrollView(this).apply { isFillViewport = true; addView(content) }
-        main.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        root.addView(main, LinearLayout.LayoutParams(0, -1, 1f))
+        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
     }
 
@@ -223,6 +246,105 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun showPlayer() {
+        currentScreen = "PLAYER"
+        content.removeAllViews()
+        val track = tracks.getOrNull(currentTrack)
+        content.addView(label("NOW PLAYING", 12, RED, true), LinearLayout.LayoutParams(-1, 40))
+        val art = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF6A172B.toInt(), 0xFF231D3B.toInt(), 0xFF111722.toInt())).apply { cornerRadius = 22f }
+        }
+        art.addView(label("♫", 92, WHITE, true).apply { gravity = Gravity.CENTER })
+        content.addView(art, LinearLayout.LayoutParams(300, 250).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = 12; bottomMargin = 18 })
+        content.addView(label(track?.title ?: "Nothing playing", 25, WHITE, true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(-1, 42))
+        content.addView(label(track?.folder?.trimEnd('/')?.substringAfterLast('/') ?: "Choose a song from your library", 14, MUTED).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(-1, 30))
+        val seek = SeekBar(this)
+        seek.max = 1000
+        content.addView(seek, LinearLayout.LayoutParams(-1, 42))
+        val controls = LinearLayout(this).apply { gravity = Gravity.CENTER; orientation = LinearLayout.HORIZONTAL }
+        controls.addView(button("PREVIOUS", false) { if (currentTrack > 0) playTrack(tracks[currentTrack - 1]) }, LinearLayout.LayoutParams(120, 54))
+        controls.addView(button(if (player.isPlaying) "Ⅱ  PAUSE" else "▶  PLAY", true) { if (player.isPlaying) player.pause() else player.play(); showPlayer() }, LinearLayout.LayoutParams(150, 54).apply { leftMargin = 12; rightMargin = 12 })
+        controls.addView(button("NEXT", false) { if (currentTrack + 1 < tracks.size) playTrack(tracks[currentTrack + 1]) }, LinearLayout.LayoutParams(120, 54))
+        content.addView(controls, LinearLayout.LayoutParams(-1, 62))
+        content.addView(button("OPEN LYRICS", false) { showLyrics() }, LinearLayout.LayoutParams(-1, 54).apply { topMargin = 14 })
+    }
+
+    private fun showLyrics() {
+        currentScreen = "LYRICS"
+        content.removeAllViews()
+        val track = tracks.getOrNull(currentTrack)
+        content.addView(label("LYRICS", 12, RED, true), LinearLayout.LayoutParams(-1, 34))
+        content.addView(label(track?.title ?: "No song selected", 26, WHITE, true), LinearLayout.LayoutParams(-1, 46))
+        content.addView(label(track?.folder?.trimEnd('/')?.substringAfterLast('/') ?: "Play a track to find its lyrics", 13, MUTED), LinearLayout.LayoutParams(-1, 34))
+        if (track == null) {
+            val empty = panel()
+            empty.addView(label("Your lyrics will appear here", 20, WHITE, true))
+            empty.addView(label("RedWave looks for a matching .lrc file beside the audio file on your SMB share.", 14, MUTED))
+            content.addView(empty, LinearLayout.LayoutParams(-1, 140).apply { topMargin = 18 })
+            return
+        }
+        if (currentLyrics.isEmpty()) {
+            content.addView(label(lyricsStatus, 15, MUTED), LinearLayout.LayoutParams(-1, 58))
+            content.addView(button("RELOAD LYRICS", false) { loadLyrics(track, true) }, LinearLayout.LayoutParams(-1, 52))
+        } else {
+            currentLyrics.forEach { line ->
+                val row = label(line.text, 19, if (line.timeMs <= player.currentPosition) WHITE else MUTED, true)
+                row.gravity = Gravity.CENTER
+                row.setPadding(12, 12, 12, 12)
+                content.addView(row, LinearLayout.LayoutParams(-1, -2))
+            }
+            content.addView(label("Timed highlighting follows playback when timestamps are present.", 11, MUTED), LinearLayout.LayoutParams(-1, 38))
+        }
+        lyricsHandler.removeCallbacksAndMessages(null)
+        val updater = object : Runnable {
+            override fun run() {
+                if (currentScreen != "LYRICS" || currentLyrics.isEmpty()) return
+                val active = currentLyrics.indexOfLast { it.timeMs <= player.currentPosition }
+                for (i in 0 until content.childCount) {
+                    val view = content.getChildAt(i)
+                    if (view is TextView && i >= 3 && i < 3 + currentLyrics.size) {
+                        view.setTextColor(if (i - 3 == active) RED else MUTED)
+                    }
+                }
+                lyricsHandler.postDelayed(this, 500)
+            }
+        }
+        lyricsHandler.post(updater)
+        if (lyricsStatus.startsWith("Choose") || lyricsStatus.startsWith("No ")) loadLyrics(track, false)
+    }
+
+    private fun loadLyrics(track: Track, force: Boolean) {
+        val ctx = smbContext ?: return
+        if (!force && currentLyrics.isNotEmpty()) return
+        lyricsStatus = "Looking for a matching .lrc file…"
+        thread(name = "redwave-lyrics") {
+            try {
+                val lrcPath = track.path.substringBeforeLast('.', track.path) + ".lrc"
+                val file = SmbFile(lrcPath, ctx)
+                if (!file.exists() || !file.isFile) throw IllegalStateException("No matching .lrc file found beside this track")
+                val parsed = SmbFileInputStream(file).bufferedReader(Charsets.UTF_8).useLines { lines ->
+                    lines.flatMap { line ->
+                        val matches = Regex("\\[(\\d{1,2}):(\\d{2})(?:\\.(\\d{1,3}))?\\](.*)").findAll(line)
+                        matches.map { match ->
+                            val minutes = match.groupValues[1].toLong()
+                            val seconds = match.groupValues[2].toLong()
+                            val fraction = match.groupValues[3].padEnd(3, '0').take(3).ifBlank { "000" }.toLong()
+                            LyricLine((minutes * 60 + seconds) * 1000 + fraction, match.groupValues[4].trim())
+                        }
+                    }.toList().sortedBy { it.timeMs }
+                }
+                currentLyrics = parsed
+                lyricsStatus = if (parsed.isEmpty()) "The .lrc file contains no timestamped lyric lines" else ""
+            } catch (e: Exception) {
+                currentLyrics = emptyList()
+                lyricsStatus = e.message ?: "Lyrics unavailable"
+            }
+            runOnUiThread { if (currentScreen == "LYRICS") showLyrics() }
+        }
+    }
+
     private fun showSmbDialog() {
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(20, 6, 20, 6) }
         val host = field("Server IP or hostname, e.g. 192.168.1.20")
@@ -342,7 +464,7 @@ class MainActivity : AppCompatActivity() {
         try {
             val ctx = smbContext ?: throw IllegalStateException("Connect to your SMB share first")
             currentTrack = tracks.indexOfFirst { it.path == track.path }.coerceAtLeast(0)
-            val factory = DataSource.Factory { SmbStreamDataSource(ctx) }
+            currentLyrics = emptyList()\n            lyricsStatus = "Choose a track to look for an .lrc file"\n            val factory = DataSource.Factory { SmbStreamDataSource(ctx) }
             val source = ProgressiveMediaSource.Factory(factory).createMediaSource(MediaItem.fromUri(track.path))
             player.setMediaSource(source)
             player.prepare()
