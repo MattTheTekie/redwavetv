@@ -573,40 +573,53 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun performScan(base: String, ctx: CIFSContext) {
-        val found = mutableListOf<Track>()
-        var visited = 0
+        // Bounded-memory indexing: do not read whole tracks into RAM or extract tags during scan.
+        var visited = 0L
+        var discovered = 0L
+        val batch = ArrayList<Track>(500)
+        val preview = ArrayList<Track>(2500)
         try {
-            fun walk(url: String, depth: Int) {
-                if (depth > 32) return
-                val directory = SmbFile(url, ctx)
-                for (file in directory.listFiles()) {
-                    visited++
-                    if (file.isDirectory) {
-                        walk(file.getURL().toString(), depth + 1)
-                    } else {
-                        val name = file.getName().trimEnd('/')
-                        val ext = name.substringAfterLast('.', "").lowercase()
-                        if (ext in AUDIO_EXTENSIONS) found.add(Track(name.substringBeforeLast('.'), file.getURL().toString(), file.getParent() ?: base))
+            libraryStore.clearTracks()
+            val pending = java.util.ArrayDeque<Pair<String, Int>>()
+            pending.add(Pair(base, 0))
+            while (!pending.isEmpty()) {
+                val (url, depth) = pending.removeFirst()
+                if (depth > 40) continue
+                try {
+                    val children = SmbFile(url, ctx).listFiles()
+                    for (file in children) {
+                        visited++
+                        try {
+                            if (file.isDirectory) {
+                                if (depth < 40) pending.add(Pair(file.getURL().toString(), depth + 1))
+                            } else {
+                                val name = file.getName().trimEnd('/')
+                                val ext = name.substringAfterLast('.', "").lowercase()
+                                if (ext in AUDIO_EXTENSIONS) {
+                                    val item = Track(name.substringBeforeLast('.'), file.getURL().toString(), file.getParent() ?: base)
+                                    batch.add(item); discovered++
+                                    if (preview.size < 2500) preview.add(item)
+                                    if (batch.size >= 500) { libraryStore.upsertBatch(batch); batch.clear() }
+                                }
+                            }
+                        } catch (_: Exception) { }
+                        if (visited % 250L == 0L) {
+                            val count = discovered
+                            runOnUiThread { statusText.text = "SCANNING • $count TRACKS" }
+                        }
                     }
-                    if (visited % 40 == 0) {
-                        val count = found.size
-                        runOnUiThread { statusText.text = "SCANNING • " + count + " TRACKS" }
-                    }
-                }
+                } catch (_: Exception) { }
             }
-            walk(base, 0)
-            val enriched = found.map { enrichMetadata(it, ctx) }.sortedBy { it.title.lowercase() }
-            tracks.clear()
-            tracks.addAll(enriched)
-            libraryStore.replaceTracks(enriched)
-            currentTrack = -1
-            isScanning = false
-            scanStatus = "Scan complete"
-            runOnUiThread { updateStatus(); refreshScreen(); toast("Found " + found.size + " audio files in " + visited + " entries") }
+            if (batch.isNotEmpty()) libraryStore.upsertBatch(batch)
+            tracks.clear(); tracks.addAll(preview)
+            currentTrack = -1; isScanning = false
+            scanStatus = "Scan complete • $discovered tracks"
+            runOnUiThread { updateStatus(); refreshScreen(); toast("Indexed $discovered audio files. Browse folders for the complete library.") }
         } catch (e: Exception) {
-            isScanning = false
-            scanStatus = "Scan failed"
-            runOnUiThread { updateStatus(); refreshScreen(); toast("Scan failed at " + base + ": " + (e.message ?: e.javaClass.simpleName)) }
+            if (batch.isNotEmpty()) try { libraryStore.upsertBatch(batch) } catch (_: Exception) { }
+            tracks.clear(); tracks.addAll(preview)
+            isScanning = false; scanStatus = "Scan interrupted • $discovered saved"
+            runOnUiThread { updateStatus(); refreshScreen(); toast("Scan stopped after saving $discovered tracks: " + (e.message ?: e.javaClass.simpleName)) }
         }
     }
 
