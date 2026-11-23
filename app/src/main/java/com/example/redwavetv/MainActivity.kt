@@ -652,37 +652,47 @@ class MainActivity : AppCompatActivity() {
         // Bounded-memory indexing: do not read whole tracks into RAM or extract tags during scan.
         var visited = 0L
         var discovered = 0L
-        val batch = ArrayList<Track>(500)
-        val preview = ArrayList<Track>(2500)
+        // Keep heap usage bounded: jcifs SmbFile.listFiles() materializes an entire
+        // directory into an array. children() enumerates SMB entries incrementally.
+        val batch = ArrayList<Track>(200)
+        val preview = ArrayList<Track>(500)
         try {
-            libraryStore.clearTracks()
+            // Do not delete the previous index up front. If the network drops halfway
+            // through a large scan, the last known library remains usable.
             val pending = java.util.ArrayDeque<Pair<String, Int>>()
             pending.add(Pair(base, 0))
             while (!pending.isEmpty()) {
-                val (url, depth) = pending.removeFirst()
+                val (url, depth) = pending.removeLast()
                 if (depth > 40) continue
                 try {
-                    val children = SmbFile(url, ctx).listFiles()
-                    for (file in children) {
-                        visited++
-                        try {
-                            if (file.isDirectory) {
-                                if (depth < 40) pending.add(Pair(file.getURL().toString(), depth + 1))
-                            } else {
-                                val name = file.getName().trimEnd('/')
-                                val ext = name.substringAfterLast('.', "").lowercase()
-                                if (ext in AUDIO_EXTENSIONS) {
-                                    val item = Track(name.substringBeforeLast('.'), file.getURL().toString(), file.getParent() ?: base)
-                                    batch.add(item); discovered++
-                                    if (preview.size < 2500) preview.add(item)
-                                    if (batch.size >= 500) { libraryStore.upsertBatch(batch); batch.clear() }
+                    val directory = SmbFile(url, ctx)
+                    val iterator = directory.children()
+                    try {
+                        while (iterator.hasNext()) {
+                            val resource = iterator.next()
+                            visited++
+                            try {
+                                val file = resource as SmbFile
+                                if (file.isDirectory) {
+                                    if (depth < 40) pending.add(Pair(file.getURL().toString(), depth + 1))
+                                } else {
+                                    val name = file.getName().trimEnd('/')
+                                    val ext = name.substringAfterLast('.', "").lowercase()
+                                    if (ext in AUDIO_EXTENSIONS) {
+                                        val item = Track(name.substringBeforeLast('.'), file.getURL().toString(), file.getParent() ?: base)
+                                        batch.add(item); discovered++
+                                        if (preview.size < 500) preview.add(item)
+                                        if (batch.size >= 200) { libraryStore.upsertBatch(batch); batch.clear() }
+                                    }
                                 }
+                            } catch (_: Exception) { }
+                            if (visited % 2000L == 0L) {
+                                val count = discovered
+                                runOnUiThread { if (::statusText.isInitialized) statusText.text = "SCANNING • $count TRACKS" }
                             }
-                        } catch (_: Exception) { }
-                        if (visited % 250L == 0L) {
-                            val count = discovered
-                            runOnUiThread { statusText.text = "SCANNING • $count TRACKS" }
                         }
+                    } finally {
+                        try { iterator.close() } catch (_: Exception) { }
                     }
                 } catch (_: Exception) { }
             }
