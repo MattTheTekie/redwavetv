@@ -295,7 +295,7 @@ class MainActivity : AppCompatActivity() {
                         }, LinearLayout.LayoutParams(-1, 48).apply { bottomMargin = 6 })
                     }
                     if (children.isEmpty()) content.addView(label("This folder is empty.", 15, MUTED))
-                    children.forEach { file ->
+                    children.take(200).forEach { file ->
                         val name = file.getName().trimEnd('/')
                         if (file.isDirectory) {
                             content.addView(button("▤   $name   ›", false) { showRemoteFolder(file.getURL().toString()) }, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 6 })
@@ -306,6 +306,7 @@ class MainActivity : AppCompatActivity() {
                             }, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 6 })
                         }
                     }
+                    if (children.size > 200) content.addView(label("Showing first 200 items in this folder. Open a narrower folder to browse more.", 13, MUTED))
                     addNowPlaying()
                 }
             } catch (e: Exception) {
@@ -318,9 +319,10 @@ class MainActivity : AppCompatActivity() {
         currentScreen = "QUEUE"
         content.removeAllViews()
         content.addView(label("All tracks", 29, WHITE, true), LinearLayout.LayoutParams(-1, 58))
-        content.addView(label(tracks.size.toString() + " tracks in your library", 13, MUTED), LinearLayout.LayoutParams(-1, 34))
+        content.addView(label(libraryStore.countTracks().toString() + " tracks indexed • showing first " + tracks.size, 13, MUTED), LinearLayout.LayoutParams(-1, 34))
         if (tracks.isEmpty()) showEmpty()
-        tracks.forEach { addTrackRow(it) }
+        tracks.take(100).forEach { addTrackRow(it) }
+        if (tracks.size > 100) content.addView(label("Showing first 100 loaded tracks. The full index remains saved.", 13, MUTED))
         addNowPlaying()
     }
 
@@ -328,7 +330,8 @@ class MainActivity : AppCompatActivity() {
         content.removeAllViews()
         content.addView(label(title, 27, WHITE, true), LinearLayout.LayoutParams(-1, 58))
         content.addView(label(songs.size.toString() + " tracks", 13, MUTED), LinearLayout.LayoutParams(-1, 34))
-        songs.forEach { addTrackRow(it) }
+        songs.take(100).forEach { addTrackRow(it) }
+        if (songs.size > 100) content.addView(label("Showing first 100 tracks in this folder.", 13, MUTED))
         addNowPlaying()
     }
 
