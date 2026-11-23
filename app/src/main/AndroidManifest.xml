@@ -3,7 +3,7 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <application android:theme="@style/AppTheme" android:label="RedWave TV" android:usesCleartextTraffic="true" android:allowBackup="false">
+    <application android:theme="@style/AppTheme" android:label="RedWave TV" android:icon="@drawable/ic_redwave_foreground" android:banner="@drawable/tv_banner" android:usesCleartextTraffic="true" android:allowBackup="false">
         <activity android:name=".MainActivity" android:screenOrientation="landscape" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
