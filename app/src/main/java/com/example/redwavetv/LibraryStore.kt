@@ -35,6 +35,20 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }
     }
+    fun loadAlbumGroups(limit: Int = 60): List<Pair<String, Long>> {
+        val result = ArrayList<Pair<String, Long>>(limit)
+        readableDatabase.rawQuery("SELECT CASE WHEN album != '' THEN album ELSE folder END AS grouping, COUNT(*) FROM tracks GROUP BY grouping ORDER BY grouping COLLATE NOCASE LIMIT ?", arrayOf(limit.toString())).use { c ->
+            while (c.moveToNext()) result.add(Pair(c.getString(0), c.getLong(1)))
+        }
+        return result
+    }
+    fun tracksInGroup(group: String, limit: Int = 100, offset: Int = 0): List<Track> {
+        val result = ArrayList<Track>(limit)
+        readableDatabase.rawQuery("SELECT title,path,folder,artist,album,artwork FROM tracks WHERE (CASE WHEN album != '' THEN album ELSE folder END)=? ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?", arrayOf(group,limit.toString(),offset.toString())).use { c ->
+            while (c.moveToNext()) result.add(Track(c.getString(0),c.getString(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5)))
+        }
+        return result
+    }
     fun replaceTracks(tracks: List<Track>) {
         clearTracks()
         upsertBatch(tracks)
@@ -42,7 +56,7 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
     fun countTracks(): Long {
         readableDatabase.rawQuery("SELECT COUNT(*) FROM tracks", null).use { it.moveToFirst(); return it.getLong(0) }
     }
-    fun loadTracks(limit: Int = 2500, offset: Int = 0): List<Track> {
+    fun loadTracks(limit: Int = 100, offset: Int = 0): List<Track> {
         val result = ArrayList<Track>(limit.coerceAtMost(5000))
         readableDatabase.query("tracks", arrayOf("path","title","folder","artist","album","artwork"), null, null, null, null, "title COLLATE NOCASE", "$limit OFFSET $offset").use { cursor ->
             while (cursor.moveToNext()) result.add(Track(cursor.getString(1),cursor.getString(0),cursor.getString(2),cursor.getString(3),cursor.getString(4),cursor.getString(5)))
