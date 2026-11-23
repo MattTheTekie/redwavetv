@@ -91,12 +91,12 @@ class MainActivity : AppCompatActivity() {
         brand.addView(label("MUSIC", 9, MUTED, true))
         header.addView(brand, LinearLayout.LayoutParams(145, 54))
         val tabs = listOf(
-            Triple("⌂  LISTEN", "HOME") { showHome() },
+            Triple("⌂  HOME", "HOME") { showHome() },
             Triple("▦  ALBUMS", "ALBUMS") { showAlbums() },
-            Triple("♫  SONGS", "QUEUE") { showQueue() },
+            Triple("♫  TRACKS", "QUEUE") { showQueue() },
             Triple("▤  FOLDERS", "FOLDERS") { showFolders() },
             Triple("♪  LYRICS", "LYRICS") { showLyrics() },
-            Triple("▶  PLAYER", "PLAYER") { showPlayer() },
+            Triple("▶  PLAY", "PLAYER") { showPlayer() },
             Triple("＋  SMB", "SMB") { showSmbDialog() }
         )
         tabs.forEach { tab ->
@@ -129,9 +129,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateStatus() {
         if (!::statusText.isInitialized) return
+        val indexedCount = if (::libraryStore.isInitialized) libraryStore.countTracks() else tracks.size
         statusText.text = when {
-            isScanning -> "SCANNING • " + tracks.size + " TRACKS"
-            smbContext != null -> "CONNECTED • " + tracks.size + " TRACKS"
+            isScanning -> "SCANNING • " + indexedCount + " TRACKS"
+            smbContext != null -> "CONNECTED • " + indexedCount + " TRACKS"
             else -> scanStatus.uppercase()
         }
         statusText.setTextColor(if (smbContext != null || isScanning) GREEN else MUTED)
@@ -151,7 +152,7 @@ class MainActivity : AppCompatActivity() {
         }
         val heroCopy = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         heroCopy.addView(label("ALL YOUR MUSIC.\nONE BEAUTIFUL LIBRARY.", 25, WHITE, true), LinearLayout.LayoutParams(-1, 78))
-        heroCopy.addView(label(tracks.size.toString() + " songs  ·  " + tracks.map { it.folder }.distinct().size + " folders", 13, 0xFFE2D9E0.toInt()))
+        heroCopy.addView(label(libraryStore.countTracks().toString() + " songs indexed  ·  browse folders anytime", 13, 0xFFE2D9E0.toInt()))
         heroCopy.addView(button(if (smbContext == null) "ADD MUSIC SHARE" else "SCAN LIBRARY", true) {
             if (smbContext == null) showSmbDialog() else scanShare()
         }, LinearLayout.LayoutParams(190, 44).apply { topMargin = 12 })
