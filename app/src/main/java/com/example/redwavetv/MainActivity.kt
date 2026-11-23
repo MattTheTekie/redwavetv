@@ -24,6 +24,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.exoplayer2.C
 import com.google.android.exoplayer2.ExoPlayer
+import com.google.android.exoplayer2.DefaultRenderersFactory
 import com.google.android.exoplayer2.MediaItem
 import com.google.android.exoplayer2.source.ProgressiveMediaSource
 import com.google.android.exoplayer2.upstream.DataSource
@@ -72,7 +73,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-        player = ExoPlayer.Builder(this).build()
+        player = ExoPlayer.Builder(this, DefaultRenderersFactory(this).setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)).build()
         libraryStore = LibraryStore(this)
         buildShell()
         try { tracks.addAll(libraryStore.loadTracks(limit = 100)) } catch (_: Exception) { scanStatus = "Library database unavailable" }
@@ -386,6 +387,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun addNowPlaying() {
         if (!::bottomPlayer.isInitialized) return
+        bottomPlayer.visibility = if (currentScreen == "PLAYER" || currentScreen == "LYRICS") View.GONE else View.VISIBLE
+        if (bottomPlayer.visibility == View.GONE) return
         bottomPlayer.removeAllViews()
         val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(8, 2, 8, 2); background = rounded(SURFACE_HI, 10); isFocusable = false; isClickable = false; descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS }
         val title = playingTrack?.title ?: tracks.getOrNull(currentTrack)?.title ?: "Nothing playing"
@@ -428,6 +431,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showPlayer() {
         currentScreen = "PLAYER"
+        bottomPlayer.visibility = View.GONE
         content.removeAllViews()
         val track = playingTrack ?: tracks.getOrNull(currentTrack)
         content.addView(label("NOW PLAYING", 12, RED, true), LinearLayout.LayoutParams(-1, 34))
@@ -444,7 +448,8 @@ class MainActivity : AppCompatActivity() {
         }
         val density = resources.displayMetrics.density
         val availableWidthDp = (resources.displayMetrics.widthPixels / density).toInt() - 72
-        val coverSize = (availableWidthDp * 0.48f).toInt().coerceIn(176, 360)
+        val availableHeightDp = (resources.displayMetrics.heightPixels / density).toInt() - 150
+        val coverSize = minOf(availableWidthDp * 0.42f, availableHeightDp * 0.43f).toInt().coerceIn(150, 300)
         content.addView(art, LinearLayout.LayoutParams(coverSize, coverSize).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = 8; bottomMargin = 14 })
         content.addView(label(track?.title ?: "Nothing playing", 22, WHITE, true).apply { gravity = Gravity.CENTER; maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 6 })
         content.addView(label(track?.artist ?: "Choose a song from your library", 15, MUTED).apply { gravity = Gravity.CENTER; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }, LinearLayout.LayoutParams(-1, 26))
@@ -471,6 +476,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showLyrics() {
         currentScreen = "LYRICS"
+        bottomPlayer.visibility = View.GONE
         content.removeAllViews()
         val track = playingTrack ?: tracks.getOrNull(currentTrack)
         content.addView(label("LYRICS", 12, RED, true), LinearLayout.LayoutParams(-1, 34))
