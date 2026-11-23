@@ -29,6 +29,7 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
     }
     @Synchronized fun updateScanProgress(visited: Long, discovered: Long) { val v = ContentValues().apply { put("visited", visited); put("discovered", discovered) }; writableDatabase.update("scan_state", v, "id=1", null) }
     @Synchronized fun finishScan(status: String, visited: Long, discovered: Long) { updateScanProgress(visited, discovered); val v = ContentValues().apply { put("status", status) }; writableDatabase.update("scan_state", v, "id=1", null); if (status == "COMPLETE") clearScanQueue() }
+    fun scanProgress(): Pair<Long, Long> = readableDatabase.rawQuery("SELECT visited,discovered FROM scan_state WHERE id=1", null).use { c -> if (c.moveToFirst()) Pair(c.getLong(0),c.getLong(1)) else Pair(0L,0L) }
     fun scanSummary(): String? = readableDatabase.rawQuery("SELECT status,visited,discovered FROM scan_state WHERE id=1", null).use { c -> if (c.moveToFirst()) "${c.getString(0)} • ${c.getLong(2)} tracks • ${c.getLong(1)} entries" else null }
     @Synchronized fun clearScanQueue() { writableDatabase.delete("scan_queue", null, null) }
     @Synchronized fun enqueueDirectory(path: String, depth: Int) { val v = ContentValues().apply { put("path", path); put("depth", depth) }; writableDatabase.insert("scan_queue", null, v) }
