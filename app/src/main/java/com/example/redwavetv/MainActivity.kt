@@ -563,7 +563,7 @@ class MainActivity : AppCompatActivity() {
                     .putString("password", password).putString("domain", workgroup).apply()
                 artCache.clear()
                 dialog.dismiss()
-                connectAndScan(username, password, workgroup)
+                connectAndScan(username, password, workgroup, false)
             }
         }
         dialog.show()
