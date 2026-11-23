@@ -431,10 +431,10 @@ class MainActivity : AppCompatActivity() {
     private fun showLyrics() {
         currentScreen = "LYRICS"
         content.removeAllViews()
-        val track = tracks.getOrNull(currentTrack)
+        val track = playingTrack ?: tracks.getOrNull(currentTrack)
         content.addView(label("LYRICS", 12, RED, true), LinearLayout.LayoutParams(-1, 34))
         content.addView(label(track?.title ?: "No song selected", 26, WHITE, true), LinearLayout.LayoutParams(-1, 46))
-        content.addView(label(track?.folder?.trimEnd('/')?.substringAfterLast('/') ?: "Play a track to find its lyrics", 13, MUTED), LinearLayout.LayoutParams(-1, 34))
+        content.addView(label(track?.artist ?: track?.folder?.trimEnd('/')?.substringAfterLast('/') ?: "Play a track to find its lyrics", 13, MUTED), LinearLayout.LayoutParams(-1, 34))
         if (track == null) {
             val empty = panel()
             empty.addView(label("Your lyrics will appear here", 20, WHITE, true))
