@@ -419,34 +419,57 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadLyrics(track: Track, force: Boolean) {
-        val ctx = smbContext ?: return
         if (!force && currentLyrics.isNotEmpty()) return
-        lyricsStatus = "Looking for a matching .lrc file…"
-        thread(name = "redwave-lyrics") {
+        lyricsStatus = "Searching online lyrics…"
+        thread(name = "redwave-online-lyrics") {
+            var parsed = emptyList<LyricLine>()
+            var message = ""
             try {
-                val lrcPath = track.path.substringBeforeLast('.', track.path) + ".lrc"
-                val file = SmbFile(lrcPath, ctx)
-                if (!file.exists() || !file.isFile) throw IllegalStateException("No matching .lrc file found beside this track")
-                val parsed = SmbFileInputStream(file).bufferedReader(Charsets.UTF_8).useLines { lines ->
-                    lines.flatMap { line ->
-                        val matches = Regex("\\[(\\d{1,2}):(\\d{2})(?:\\.(\\d{1,3}))?\\](.*)").findAll(line)
-                        matches.map { match ->
-                            val minutes = match.groupValues[1].toLong()
-                            val seconds = match.groupValues[2].toLong()
-                            val fraction = match.groupValues[3].padEnd(3, '0').take(3).ifBlank { "000" }.toLong()
-                            LyricLine((minutes * 60 + seconds) * 1000 + fraction, match.groupValues[4].trim())
-                        }
-                    }.toList().sortedBy { it.timeMs }
-                }
-                currentLyrics = parsed
-                lyricsStatus = if (parsed.isEmpty()) "The .lrc file contains no timestamped lyric lines" else ""
-            } catch (e: Exception) {
-                currentLyrics = emptyList()
-                lyricsStatus = e.message ?: "Lyrics unavailable"
+                val address = "https://lrclib.net/api/get?artist_name=" +
+                    java.net.URLEncoder.encode(track.artist, "UTF-8") + "&track_name=" +
+                    java.net.URLEncoder.encode(track.title, "UTF-8")
+                val connection = java.net.URL(address).openConnection() as java.net.HttpURLConnection
+                connection.connectTimeout = 9000
+                connection.readTimeout = 9000
+                connection.setRequestProperty("User-Agent", "RedWaveTV Android music player")
+                try {
+                    if (connection.responseCode == 200) {
+                        val json = org.json.JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                        val synced = json.optString("syncedLyrics", "")
+                        val plain = json.optString("plainLyrics", "")
+                        parsed = if (synced.isNotBlank()) parseLrcText(synced) else plain.lines()
+                            .filter { it.isNotBlank() }.mapIndexed { index, line -> LyricLine(index * 4500L, line) }
+                    } else message = "No matching online lyrics"
+                } finally { connection.disconnect() }
+            } catch (e: Exception) { message = "Online lyrics unavailable" }
+            if (parsed.isEmpty() && smbContext != null) {
+                try {
+                    val path = track.path.substringBeforeLast('.', track.path) + ".lrc"
+                    val file = SmbFile(path, smbContext)
+                    if (file.exists() && file.isFile) {
+                        parsed = SmbFileInputStream(file).bufferedReader(Charsets.UTF_8).use { parseLrcText(it.readText()) }
+                        if (parsed.isNotEmpty()) message = "Using local LRC file"
+                    }
+                } catch (_: Exception) {}
             }
+            currentLyrics = parsed
+            lyricsStatus = if (parsed.isEmpty()) message.ifBlank { "Lyrics not found" } else message.ifBlank { "Lyrics loaded" }
             runOnUiThread { if (currentScreen == "LYRICS") showLyrics() }
         }
     }
+
+    private fun parseLrcText(text: String): List<LyricLine> {
+        val pattern = Regex("\\[(\\d{1,2}):(\\d{2})(?:\\.(\\d{1,3}))?\\](.*)")
+        return text.lineSequence().flatMap { line ->
+            pattern.findAll(line).map { match ->
+                val minutes = match.groupValues[1].toLong()
+                val seconds = match.groupValues[2].toLong()
+                val millis = match.groupValues[3].padEnd(3, '0').take(3).ifBlank { "000" }.toLong()
+                LyricLine((minutes * 60 + seconds) * 1000 + millis, match.groupValues[4].trim())
+            }
+        }.filter { it.text.isNotBlank() }.sortedBy { it.timeMs }.toList()
+    }
+
 
     private fun restoreSavedShare() {
         val share = securePrefs.getString("share", null) ?: return
