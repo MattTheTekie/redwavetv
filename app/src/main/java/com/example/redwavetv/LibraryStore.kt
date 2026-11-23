@@ -5,7 +5,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-library.db", null, 3) {
+class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-library.db", null, 4) {
     init { setWriteAheadLoggingEnabled(true) }
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE tracks (path TEXT PRIMARY KEY, title TEXT NOT NULL, folder TEXT NOT NULL, artist TEXT NOT NULL, album TEXT NOT NULL, artwork TEXT NOT NULL)")
@@ -13,9 +13,15 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         db.execSQL("CREATE INDEX tracks_folder_idx ON tracks(folder)")
         db.execSQL("CREATE INDEX tracks_album_idx ON tracks(album)")
         db.execSQL("CREATE TABLE scan_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, depth INTEGER NOT NULL)")
+        db.execSQL("CREATE UNIQUE INDEX scan_queue_path_idx ON scan_queue(path)")
         db.execSQL("CREATE TABLE scan_state (id INTEGER PRIMARY KEY CHECK(id=1), base TEXT NOT NULL, status TEXT NOT NULL, visited INTEGER NOT NULL DEFAULT 0, discovered INTEGER NOT NULL DEFAULT 0)")
     }
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) { if (oldVersion < 2) db.execSQL("CREATE TABLE IF NOT EXISTS scan_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, depth INTEGER NOT NULL)"); if (oldVersion < 3) db.execSQL("CREATE TABLE IF NOT EXISTS scan_state (id INTEGER PRIMARY KEY CHECK(id=1), base TEXT NOT NULL, status TEXT NOT NULL, visited INTEGER NOT NULL DEFAULT 0, discovered INTEGER NOT NULL DEFAULT 0)") }
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) { if (oldVersion < 2) db.execSQL("CREATE TABLE IF NOT EXISTS scan_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, depth INTEGER NOT NULL)"); if (oldVersion < 3) db.execSQL("CREATE TABLE IF NOT EXISTS scan_state (id INTEGER PRIMARY KEY CHECK(id=1), base TEXT NOT NULL, status TEXT NOT NULL, visited INTEGER NOT NULL DEFAULT 0, discovered INTEGER NOT NULL DEFAULT 0)")
+        if (oldVersion < 4) {
+            db.execSQL("DELETE FROM scan_queue WHERE id NOT IN (SELECT MIN(id) FROM scan_queue GROUP BY path)")
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS scan_queue_path_idx ON scan_queue(path)")
+        }
+    }
     override fun onConfigure(db: SQLiteDatabase) { super.onConfigure(db); db.execSQL("PRAGMA cache_size=-2048"); db.execSQL("PRAGMA temp_store=FILE"); db.execSQL("PRAGMA mmap_size=0") }
     @Synchronized fun startOrResumeScan(base: String): Boolean {
         val db = writableDatabase
@@ -32,12 +38,12 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
     fun scanProgress(): Pair<Long, Long> = readableDatabase.rawQuery("SELECT visited,discovered FROM scan_state WHERE id=1", null).use { c -> if (c.moveToFirst()) Pair(c.getLong(0),c.getLong(1)) else Pair(0L,0L) }
     fun scanSummary(): String? = readableDatabase.rawQuery("SELECT status,visited,discovered FROM scan_state WHERE id=1", null).use { c -> if (c.moveToFirst()) "${c.getString(0)} • ${c.getLong(2)} tracks • ${c.getLong(1)} entries" else null }
     @Synchronized fun clearScanQueue() { writableDatabase.delete("scan_queue", null, null) }
-    @Synchronized fun enqueueDirectory(path: String, depth: Int) { val v = ContentValues().apply { put("path", path); put("depth", depth) }; writableDatabase.insert("scan_queue", null, v) }
+    @Synchronized fun enqueueDirectory(path: String, depth: Int) { val v = ContentValues().apply { put("path", path); put("depth", depth) }; writableDatabase.insertWithOnConflict("scan_queue", null, v, SQLiteDatabase.CONFLICT_IGNORE) }
     @Synchronized fun dequeueDirectory(): Pair<String, Int>? {
         val db = writableDatabase
         db.beginTransaction()
         try {
-            val item = db.rawQuery("SELECT id,path,depth FROM scan_queue ORDER BY id LIMIT 1", null).use { c -> if (c.moveToFirst()) Triple(c.getLong(0), c.getString(1), c.getInt(2)) else null } ?: run { db.setTransactionSuccessful(); return null }
+            val item = db.rawQuery("SELECT id,path,depth FROM scan_queue ORDER BY id DESC LIMIT 1", null).use { c -> if (c.moveToFirst()) Triple(c.getLong(0), c.getString(1), c.getInt(2)) else null } ?: run { db.setTransactionSuccessful(); return null }
             db.setTransactionSuccessful()
             return Pair(item.second, item.third)
         } finally { db.endTransaction() }
