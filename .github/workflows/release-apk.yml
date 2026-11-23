@@ -37,24 +37,22 @@ jobs:
         with:
           gradle-version: "8.2"
 
-      - name: Build release and test APKs
-        run: gradle --no-daemon :app:assembleRelease :app:assembleDebug
+      - name: Build installable test-signed release APK
+        run: gradle --no-daemon :app:assembleDebug
 
-      - name: Collect APKs
+      - name: Prepare test-signed release APK
         run: |
           mkdir -p dist
-          RELEASE_APK="$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)"
-          DEBUG_APK="$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)"
-          test -n "$RELEASE_APK"
-          test -n "$DEBUG_APK"
-          cp "$RELEASE_APK" dist/RedWaveTV-arm32-release-unsigned.apk
-          cp "$DEBUG_APK" dist/RedWaveTV-arm32-test-signed.apk
+          APK="$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)"
+          test -n "$APK"
+          cp "$APK" dist/RedWaveTV-arm32-release.apk
+          apksigner verify --verbose dist/RedWaveTV-arm32-release.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: RedWaveTV-arm32-release-apk
-          path: dist/*.apk
+          path: dist/RedWaveTV-arm32-release.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -66,7 +64,6 @@ jobs:
           prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
           generate_release_notes: true
           files: |
-            dist/RedWaveTV-arm32-release-unsigned.apk
-            dist/RedWaveTV-arm32-test-signed.apk
+            dist/RedWaveTV-arm32-release.apk
           body: |
-            ARM32 (armeabi-v7a) builds. The release APK is unsigned; the test APK is signed with Android's standard debug test key for installation/testing only. Main-branch builds are rolling prereleases; version tags publish stable releases.
+            ARM32 (armeabi-v7a) installable APK signed with the Android debug test key. This is for testing only; debug-key identity is not suitable for production updates or Play Store publishing. Main-branch builds are rolling prereleases; version tags publish releases.
