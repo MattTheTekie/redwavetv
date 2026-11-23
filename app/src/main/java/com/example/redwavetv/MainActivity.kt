@@ -545,7 +545,7 @@ class MainActivity : AppCompatActivity() {
         listOf(host, share, folder, user, pass, domain).forEach { box.addView(it, LinearLayout.LayoutParams(-1, 50)) }
         val dialog = AlertDialog.Builder(this).setTitle("Connect to SMB2 / SMB3")
             .setMessage("Enter the server and share. You can browse folders first or scan the library later.")
-            .setView(box).setNegativeButton("CANCEL", null).setPositiveButton("CONNECT & SCAN", null).create()
+            .setView(box).setNegativeButton("CANCEL", null).setPositiveButton("CONNECT", null).create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val server = host.text.toString().trim().removePrefix("smb://").trimEnd('/')
