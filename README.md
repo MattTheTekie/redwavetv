@@ -45,3 +45,20 @@ The app's `minSdk` is 25 and `abiFilters` is set to `armeabi-v7a`. The resulting
 ## Compatibility and security
 
 This project targets API 25+ and ARMv7. Test on the actual TV box: some vendor Android 7.1 builds have nonstandard TLS/network stacks or incomplete media-key handling. Do not expose SMB shares to the public internet. Use a trusted LAN/VPN and a dedicated read-only SMB account where possible.
+
+
+## GitHub Actions release APK
+
+The workflow at `.github/workflows/release-apk.yml` builds an ARM32 release APK.
+
+- Run it manually from **Actions → Build and publish ARM32 release APK → Run workflow** to create a downloadable workflow artifact.
+- Push a version tag such as `v0.1.0` to build the APK and publish it as a GitHub Release.
+- Without signing secrets, the workflow produces an **unsigned** APK artifact and clearly labels it as unsigned. Android will not install an unsigned release APK.
+- For installable, consistently signed releases, add these repository Actions secrets: `RELEASE_KEYSTORE_BASE64` (base64-encoded JKS/keystore file), `RELEASE_KEYSTORE_PASSWORD`, `RELEASE_KEY_ALIAS`, and `RELEASE_KEY_PASSWORD`. Keep the same private keystore for future updates; losing it prevents signing updates with the same app identity.
+
+Example tag command:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
