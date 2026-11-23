@@ -1,6 +1,9 @@
 package com.example.redwavetv
 
 import android.graphics.Typeface
+import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
+import java.io.File
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
@@ -12,6 +15,7 @@ import android.os.Looper
 import android.widget.SeekBar
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ImageView
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -58,12 +62,15 @@ class MainActivity : AppCompatActivity() {
     private var currentLyrics: List<LyricLine> = emptyList()
     private var lyricsStatus = "Choose a track to look for an .lrc file"
     private val lyricsHandler = Handler(Looper.getMainLooper())
+    private val artCache = mutableMapOf<String, android.graphics.Bitmap?>()
+    private val securePrefs by lazy { androidx.security.crypto.EncryptedSharedPreferences.create(this, "redwave_secure", androidx.security.crypto.MasterKey.Builder(this).setKeyScheme(androidx.security.crypto.MasterKey.KeyScheme.AES256_GCM).build(), androidx.security.crypto.EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV, androidx.security.crypto.EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         player = ExoPlayer.Builder(this).build()
         buildShell()
+        restoreSavedShare()
         showHome()
     }
 
@@ -130,46 +137,125 @@ class MainActivity : AppCompatActivity() {
         currentScreen = "HOME"
         content.removeAllViews()
         updateStatus()
-        content.addView(label("Your sound. Your space.", 31, WHITE, true), LinearLayout.LayoutParams(-1, 58))
-        content.addView(label(if (currentShare.isBlank()) "Connect your network music library to get started." else currentShare, 13, MUTED), LinearLayout.LayoutParams(-1, 34))
-        val hero = panel()
-        hero.addView(label("YOUR MUSIC LIBRARY", 11, RED, true))
-        hero.addView(label(tracks.size.toString(), 42, WHITE, true), LinearLayout.LayoutParams(-1, 54))
-        hero.addView(label("tracks discovered", 13, MUTED))
-        content.addView(hero, LinearLayout.LayoutParams(-1, 142).apply { topMargin = 12; bottomMargin = 14 })
-        val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        actions.addView(button("＋  CONNECT SMB SHARE", false) { showSmbDialog() }, LinearLayout.LayoutParams(0, 58, 1f).apply { rightMargin = 8 })
-        actions.addView(button("↻  SCAN AGAIN", false) { scanShare() }, LinearLayout.LayoutParams(0, 58, 1f).apply { leftMargin = 8 })
-        content.addView(actions)
-        when {
-            isScanning -> {
-                content.addView(label("Scanning your share recursively…", 17, GREEN, true), LinearLayout.LayoutParams(-1, 48))
-                content.addView(label("This can take a little while on large network libraries.", 13, MUTED))
-            }
-            tracks.isEmpty() -> {
-                val empty = panel()
-                empty.addView(label("♫", 34, RED, true))
-                empty.addView(label("Your library is waiting", 21, WHITE, true))
-                empty.addView(label("Add an SMB share. RedWave will test access, then search nested folders for audio files.", 14, MUTED))
-                content.addView(empty, LinearLayout.LayoutParams(-1, 178).apply { topMargin = 18 })
-            }
-            else -> {
-                content.addView(label("RECENTLY DISCOVERED", 14, RED, true), LinearLayout.LayoutParams(-1, 48))
-                tracks.take(8).forEach { addTrackRow(it) }
-                if (tracks.size > 8) content.addView(button("VIEW ALL TRACKS", false) { showQueue() })
-            }
+        content.addView(label("Listen Now", 32, WHITE, true), LinearLayout.LayoutParams(-1, 48))
+        content.addView(label("Your music, picked by you.", 14, MUTED), LinearLayout.LayoutParams(-1, 30))
+        val hero = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(22, 16, 22, 16)
+            background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(0xFF522638.toInt(), 0xFF30243F.toInt(), SURFACE)).apply { cornerRadius = 18f }
+        }
+        val heroCopy = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        heroCopy.addView(label("ALL YOUR MUSIC.\nONE BEAUTIFUL LIBRARY.", 25, WHITE, true), LinearLayout.LayoutParams(-1, 78))
+        heroCopy.addView(label(tracks.size.toString() + " songs  ·  " + tracks.map { it.folder }.distinct().size + " folders", 13, 0xFFE2D9E0.toInt()))
+        heroCopy.addView(button(if (smbContext == null) "ADD MUSIC SHARE" else "SCAN LIBRARY", true) {
+            if (smbContext == null) showSmbDialog() else scanShare()
+        }, LinearLayout.LayoutParams(190, 44).apply { topMargin = 12 })
+        hero.addView(heroCopy, LinearLayout.LayoutParams(0, -2, 1f))
+        hero.addView(label("♫", 86, 0xFFFFA4B5.toInt(), true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(150, 130))
+        content.addView(hero, LinearLayout.LayoutParams(-1, 172).apply { topMargin = 10; bottomMargin = 18 })
+        if (isScanning) content.addView(label("Scanning network library…  " + tracks.size + " found", 13, GREEN, true), LinearLayout.LayoutParams(-1, 36))
+        val folders = tracks.groupBy { it.folder }.toList().sortedBy { it.first.trimEnd('/').substringAfterLast('/').lowercase() }
+        if (folders.isNotEmpty()) {
+            sectionTitle("ALBUMS & FOLDERS", "SEE ALL") { showAlbums() }
+            addArtworkGrid(folders.take(10))
+        } else if (!isScanning) {
+            val empty = panel()
+            empty.addView(label("Your library starts here", 20, WHITE, true))
+            empty.addView(label("Connect an SMB share. RedWave scans nested folders and looks for cover artwork.", 14, MUTED))
+            content.addView(empty, LinearLayout.LayoutParams(-1, 112).apply { bottomMargin = 16 })
+        }
+        if (tracks.isNotEmpty()) {
+            sectionTitle("RECENTLY ADDED", "SEE SONGS") { showQueue() }
+            tracks.take(6).forEach { addTrackRow(it) }
         }
         addNowPlaying()
+    }
+
+    private fun sectionTitle(title: String, action: String, onClick: () -> Unit) {
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        row.addView(label(title, 15, WHITE, true), LinearLayout.LayoutParams(0, 42, 1f))
+        row.addView(button(action, false, onClick), LinearLayout.LayoutParams(112, 36))
+        content.addView(row)
+    }
+
+    private fun addArtworkGrid(groups: List<Pair<String, List<Track>>>) {
+        var index = 0
+        while (index < groups.size) {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.TOP }
+            for (column in 0..2) {
+                if (index >= groups.size) break
+                val group = groups[index++]
+                val card = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(8, 8, 8, 8)
+                    background = rounded(SURFACE, 12)
+                    isFocusable = true
+                    isClickable = true
+                    setOnFocusChangeListener { v, focus -> v.background = rounded(if (focus) SURFACE_HI else SURFACE, 12) }
+                    setOnClickListener { showTrackList(group.first.trimEnd('/').substringAfterLast('/'), group.second) }
+                }
+                val art = ImageView(this).apply {
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF713047.toInt(), 0xFF242B48.toInt())).apply { cornerRadius = 9f }
+                    setImageDrawable(GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF713047.toInt(), 0xFF242B48.toInt())).apply { cornerRadius = 9f })
+                }
+                card.addView(art, LinearLayout.LayoutParams(-1, 116))
+                card.addView(label(group.first.trimEnd('/').substringAfterLast('/').ifBlank { "Music" }, 13, WHITE, true), LinearLayout.LayoutParams(-1, 28))
+                card.addView(label(group.second.size.toString() + " songs", 11, MUTED), LinearLayout.LayoutParams(-1, 20))
+                row.addView(card, LinearLayout.LayoutParams(0, 174, 1f).apply { if (column < 2) rightMargin = 10; bottomMargin = 10 })
+                loadFolderArt(group.first, group.second.firstOrNull(), art)
+            }
+            while (row.childCount < 3) row.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+            content.addView(row, LinearLayout.LayoutParams(-1, 180))
+        }
+    }
+
+    private fun loadFolderArt(folder: String, sample: Track?, target: ImageView) {
+        synchronized(artCache) {
+            if (artCache.containsKey(folder)) {
+                artCache[folder]?.let { target.setImageBitmap(it) }
+                return
+            }
+        }
+        val ctx = smbContext ?: return
+        thread(name = "redwave-art") {
+            var bitmap: android.graphics.Bitmap? = null
+            try {
+                for (name in listOf("cover.jpg", "folder.jpg", "album.jpg", "front.jpg", "cover.png", "folder.png")) {
+                    try {
+                        val image = SmbFile(folder.trimEnd('/') + "/" + name, ctx)
+                        if (image.exists() && image.isFile) {
+                            bitmap = SmbFileInputStream(image).use { BitmapFactory.decodeStream(it) }
+                            if (bitmap != null) break
+                        }
+                    } catch (_: Exception) {}
+                }
+                if (bitmap == null && sample != null) {
+                    val temp = File(cacheDir, "art_" + sample.path.hashCode() + ".audio")
+                    try {
+                        SmbFileInputStream(SmbFile(sample.path, ctx)).use { input -> temp.outputStream().use { output -> input.copyTo(output) } }
+                        val retriever = MediaMetadataRetriever()
+                        try {
+                            retriever.setDataSource(temp.absolutePath)
+                            val bytes = retriever.embeddedPicture
+                            if (bytes != null) bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        } finally { retriever.release(); temp.delete() }
+                    } catch (_: Exception) {}
+                }
+            } catch (_: Exception) {}
+            synchronized(artCache) { artCache[folder] = bitmap }
+            runOnUiThread { if (bitmap != null && target.isAttachedToWindow) target.setImageBitmap(bitmap) }
+        }
     }
 
     private fun showAlbums() {
         currentScreen = "ALBUMS"
         content.removeAllViews()
-        content.addView(label("Albums & collections", 29, WHITE, true), LinearLayout.LayoutParams(-1, 58))
-        content.addView(label("Grouped by folder name. Embedded music tags and artwork are not yet indexed.", 13, MUTED), LinearLayout.LayoutParams(-1, 38))
-        val groups = tracks.groupBy { it.folder.trimEnd('/').substringAfterLast('/').ifBlank { "Music" } }.toList().sortedBy { it.first.lowercase() }
-        if (groups.isEmpty()) showEmpty()
-        groups.forEach { (name, songs) -> content.addView(button("♫   " + name + "    ·    " + songs.size + " tracks", false) { showTrackList(name, songs) }, LinearLayout.LayoutParams(-1, 60).apply { bottomMargin = 7 }) }
+        content.addView(label("Albums & folders", 30, WHITE, true), LinearLayout.LayoutParams(-1, 48))
+        content.addView(label("Your network music, arranged as visual collections.", 13, MUTED), LinearLayout.LayoutParams(-1, 32))
+        val groups = tracks.groupBy { it.folder }.toList().sortedBy { it.first.lowercase() }
+        if (groups.isEmpty()) showEmpty() else addArtworkGrid(groups)
         addNowPlaying()
     }
 
@@ -240,6 +326,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshScreen() {
         when (currentScreen) {
+            "PLAYER" -> showPlayer()
+            "LYRICS" -> showLyrics()
             "ALBUMS" -> showAlbums()
             "FOLDERS" -> showFolders()
             "QUEUE" -> showQueue()
@@ -355,6 +443,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun restoreSavedShare() {
+        val share = securePrefs.getString("share", null) ?: return
+        val username = securePrefs.getString("username", "") ?: ""
+        val password = securePrefs.getString("password", "") ?: ""
+        val domain = securePrefs.getString("domain", "") ?: ""
+        currentShare = share
+        connectAndScan(username, password, domain)
+    }
+
     private fun showSmbDialog() {
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(20, 6, 20, 6) }
         val host = field("Server IP or hostname, e.g. 192.168.1.20")
@@ -377,8 +474,14 @@ class MainActivity : AppCompatActivity() {
                 }
                 val sub = folder.text.toString().trim().trim('/')
                 currentShare = "smb://" + server + "/" + shareName + "/" + if (sub.isBlank()) "" else sub.trim('/') + "/"
+                val username = user.text.toString().trim()
+                val password = pass.text.toString()
+                val workgroup = domain.text.toString().trim()
+                securePrefs.edit().putString("share", currentShare).putString("username", username)
+                    .putString("password", password).putString("domain", workgroup).apply()
+                artCache.clear()
                 dialog.dismiss()
-                connectAndScan(user.text.toString().trim(), pass.text.toString(), domain.text.toString().trim())
+                connectAndScan(username, password, workgroup)
             }
         }
         dialog.show()
@@ -529,7 +632,7 @@ class MainActivity : AppCompatActivity() {
         return super.onKeyDown(keyCode, event)
     }
 
-    override fun onDestroy() { player.release(); super.onDestroy() }
+    override fun onDestroy() { lyricsHandler.removeCallbacksAndMessages(null); player.release(); super.onDestroy() }
 
     private class SmbStreamDataSource(private val context: CIFSContext) : DataSource {
         private var stream: SmbFileInputStream? = null
