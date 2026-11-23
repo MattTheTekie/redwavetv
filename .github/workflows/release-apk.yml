@@ -2,6 +2,8 @@ name: Build and publish ARM32 release APK
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
   workflow_dispatch:
@@ -54,10 +56,12 @@ jobs:
           retention-days: 30
 
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('build-{0}', github.run_number) }}
+          name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('RedWave TV build {0}', github.run_number) }}
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
           generate_release_notes: true
           files: dist/RedWaveTV-arm32-release.apk
           body: |
-            ARM32 (armeabi-v7a) **unsigned** release APK. Android devices will reject this APK for installation until it is signed.
+            ARM32 (armeabi-v7a) **unsigned** release APK. Main-branch builds are rolling prereleases; version tags publish stable releases. Android devices will reject this APK for installation until it is signed.
