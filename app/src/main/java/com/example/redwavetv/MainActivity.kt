@@ -59,6 +59,10 @@ class MainActivity : AppCompatActivity() {
     private var smbContext: CIFSContext? = null
     private var currentShare = ""
     private var currentTrack = -1
+    private var playbackQueue: List<Track> = emptyList()
+    private var queuePosition = -1
+    private var shuffleEnabled = false
+    private var repeatMode = 0
     private var playingTrack: Track? = null
     private var isScanning = false
     private var scanStatus = "Not connected"
@@ -329,13 +333,20 @@ class MainActivity : AppCompatActivity() {
                     }
                     if (page.isEmpty() && offset == 0) content.addView(label("This folder is empty.", 15, MUTED))
                     val sortedPage = page.sortedWith(compareBy<SmbFile>({ !it.isDirectory }, { it.getName().trimEnd('/').lowercase() }))
+                    val folderQueue = sortedPage.filter { !it.isDirectory }.map { file ->
+                        val name = file.getName().trimEnd('/')
+                        Track(name.substringBeforeLast('.'), file.getURL().toString(), file.getParent() ?: path)
+                    }
+                    if (folderQueue.isNotEmpty()) content.addView(button("▶ PLAY FOLDER", true) {
+                        playTrack(folderQueue.first(), folderQueue)
+                    }, LinearLayout.LayoutParams(-1, 48).apply { bottomMargin = 8 })
                     sortedPage.forEach { file ->
                         val name = file.getName().trimEnd('/')
                         if (file.isDirectory) {
                             content.addView(button("▤   $name   ›", false) { showRemoteFolder(file.getURL().toString()) }, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 6 })
                         } else {
                             content.addView(button("♫   " + name.substringBeforeLast('.'), false) {
-                                playTrack(Track(name.substringBeforeLast('.'), file.getURL().toString(), file.getParent() ?: path))
+                                playTrack(Track(name.substringBeforeLast('.'), file.getURL().toString(), file.getParent() ?: path), folderQueue)
                             }, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 6 })
                         }
                     }
@@ -381,6 +392,7 @@ class MainActivity : AppCompatActivity() {
         content.removeAllViews()
         content.addView(label(title, 27, WHITE, true), LinearLayout.LayoutParams(-1, 58))
         content.addView(label(songs.size.toString() + " tracks", 13, MUTED), LinearLayout.LayoutParams(-1, 34))
+        if (songs.isNotEmpty()) content.addView(button("▶  PLAY ALBUM / FOLDER", true) { playTrack(songs.first(), songs) }, LinearLayout.LayoutParams(-1, 48).apply { bottomMargin = 8 })
         songs.take(100).forEach { addTrackRow(it) }
         if (songs.size > 100) content.addView(label("Showing first 100 tracks in this folder.", 13, MUTED))
         addNowPlaying()
@@ -482,6 +494,14 @@ class MainActivity : AppCompatActivity() {
         bottomPlayer.visibility = View.GONE
         content.removeAllViews()
         val track = playingTrack ?: tracks.getOrNull(currentTrack)
+        val modes = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        modes.addView(button(if (shuffleEnabled) "SHUFFLE ON" else "SHUFFLE OFF", shuffleEnabled) { shuffleEnabled = !shuffleEnabled; player.shuffleModeEnabled = shuffleEnabled; showPlayer() }, LinearLayout.LayoutParams(150, 46))
+        modes.addView(button(when (repeatMode) { 1 -> "REPEAT ONE"; 2 -> "REPEAT ALL"; else -> "REPEAT OFF" }, repeatMode != 0) {
+            repeatMode = (repeatMode + 1) % 3
+            player.repeatMode = if (repeatMode == 1) com.google.android.exoplayer2.Player.REPEAT_MODE_ONE else if (repeatMode == 2) com.google.android.exoplayer2.Player.REPEAT_MODE_ALL else com.google.android.exoplayer2.Player.REPEAT_MODE_OFF
+            showPlayer()
+        }, LinearLayout.LayoutParams(150, 46).apply { leftMargin = 10 })
+        content.addView(modes, LinearLayout.LayoutParams(-1, 52))
         content.addView(label("NOW PLAYING", 12, RED, true), LinearLayout.LayoutParams(-1, 34))
         val art = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -515,9 +535,9 @@ class MainActivity : AppCompatActivity() {
         })
         content.addView(seek, LinearLayout.LayoutParams(-1, 42))
         val controls = LinearLayout(this).apply { gravity = Gravity.CENTER; orientation = LinearLayout.HORIZONTAL }
-        controls.addView(button("PREVIOUS", false) { if (currentTrack > 0) playTrack(tracks[currentTrack - 1]) }, LinearLayout.LayoutParams(120, 54))
+        controls.addView(button("PREVIOUS", false) { playPrevious() }, LinearLayout.LayoutParams(120, 54))
         controls.addView(button(if (player.isPlaying) "Ⅱ  PAUSE" else "▶  PLAY", true) { if (player.isPlaying) player.pause() else player.play(); showPlayer() }, LinearLayout.LayoutParams(150, 54).apply { leftMargin = 12; rightMargin = 12 })
-        controls.addView(button("NEXT", false) { if (currentTrack + 1 < tracks.size) playTrack(tracks[currentTrack + 1]) }, LinearLayout.LayoutParams(120, 54))
+        controls.addView(button("NEXT", false) { playNext() }, LinearLayout.LayoutParams(120, 54))
         content.addView(controls, LinearLayout.LayoutParams(-1, 62))
         content.addView(button("OPEN LYRICS", false) { showLyrics() }, LinearLayout.LayoutParams(-1, 54).apply { topMargin = 14 })
     }
@@ -819,9 +839,31 @@ class MainActivity : AppCompatActivity() {
         finally { try { retriever.release() } catch (_: Exception) {}; temp.delete() }
     }
 
-    private fun playTrack(track: Track) {
+    private fun playPrevious() {
+        if (playbackQueue.isEmpty()) return
+        val next = if (shuffleEnabled) (playbackQueue.indices.filter { it != queuePosition }.randomOrNull() ?: queuePosition) else (queuePosition - 1).coerceAtLeast(0)
+        queuePosition = next
+        playTrack(playbackQueue[next], playbackQueue)
+    }
+
+    private fun playNext() {
+        if (playbackQueue.isEmpty()) return
+        val next = when {
+            shuffleEnabled && playbackQueue.size > 1 -> playbackQueue.indices.filter { it != queuePosition }.randomOrNull() ?: queuePosition
+            queuePosition + 1 < playbackQueue.size -> queuePosition + 1
+            repeatMode == 2 -> 0
+            else -> return
+        }
+        queuePosition = next
+        playTrack(playbackQueue[next], playbackQueue)
+    }
+
+    private fun playTrack(track: Track, queue: List<Track>? = null) {
         try {
             val ctx = smbContext ?: throw IllegalStateException("Connect to your SMB share first")
+            if (queue != null) playbackQueue = queue
+            if (playbackQueue.isEmpty()) playbackQueue = tracks
+            queuePosition = playbackQueue.indexOfFirst { it.path == track.path }
             currentTrack = tracks.indexOfFirst { it.path == track.path }
             playingTrack = track
             try { libraryStore.recordPlay(track.path) } catch (_: Exception) { }
@@ -833,6 +875,19 @@ class MainActivity : AppCompatActivity() {
             player.prepare()
             player.play()
             refreshScreen()
+            // Extract metadata and embedded cover only for the selected track.
+            thread(name = "redwave-track-metadata") {
+                val enriched = enrichMetadata(track, ctx)
+                if (enriched != track) {
+                    try { libraryStore.updateTrackMetadata(enriched) } catch (_: Exception) { }
+                    runOnUiThread {
+                        if (playingTrack?.path == enriched.path) {
+                            playingTrack = enriched
+                            if (currentScreen == "PLAYER") showPlayer()
+                        }
+                    }
+                }
+            }
         } catch (e: Exception) { toast("Playback error: " + (e.message ?: e.javaClass.simpleName)) }
     }
 
