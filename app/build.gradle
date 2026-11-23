@@ -34,6 +34,5 @@ dependencies {
     implementation 'androidx.security:security-crypto:1.1.0-alpha06'
     implementation 'androidx.recyclerview:recyclerview:1.3.2'
     implementation 'com.google.android.exoplayer:exoplayer:2.19.1'
-    implementation 'com.google.android.exoplayer:exoplayer-extension-flac:2.19.1'
     implementation 'eu.agno3.jcifs:jcifs-ng:2.1.10'
 }
