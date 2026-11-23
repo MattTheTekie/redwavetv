@@ -75,7 +75,7 @@ class MainActivity : AppCompatActivity() {
         player = ExoPlayer.Builder(this).build()
         libraryStore = LibraryStore(this)
         buildShell()
-        try { tracks.addAll(libraryStore.loadTracks(limit = 250)) } catch (_: Exception) { scanStatus = "Library database unavailable" }
+        try { tracks.addAll(libraryStore.loadTracks(limit = 100)) } catch (_: Exception) { scanStatus = "Library database unavailable" }
         showHome()
         try { restoreSavedShare() } catch (_: Exception) { scanStatus = "Saved connection needs attention"; updateStatus() }
     }
@@ -165,10 +165,10 @@ class MainActivity : AppCompatActivity() {
         hero.addView(label("♫", 86, 0xFFFFA4B5.toInt(), true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(150, 130))
         content.addView(hero, LinearLayout.LayoutParams(-1, 172).apply { topMargin = 10; bottomMargin = 18 })
         if (isScanning) content.addView(label("Scanning network library…  " + tracks.size + " found", 13, GREEN, true), LinearLayout.LayoutParams(-1, 36))
-        val folders = tracks.groupBy { it.album.ifBlank { it.folder.trimEnd('/').substringAfterLast('/') } }.toList().sortedBy { it.first.lowercase() }
+        val folders = libraryStore.loadAlbumGroups(9).map { it.first to libraryStore.tracksInGroup(it.first, 1) }
         if (folders.isNotEmpty()) {
             sectionTitle("ALBUMS", "SEE ALL") { showAlbums() }
-            addArtworkGrid(folders.take(10))
+            addArtworkGrid(folders)
         } else if (!isScanning) {
             val empty = panel()
             empty.addView(label("Your library starts here", 20, WHITE, true))
@@ -268,7 +268,7 @@ class MainActivity : AppCompatActivity() {
         content.removeAllViews()
         content.addView(label("Albums & folders", 30, WHITE, true), LinearLayout.LayoutParams(-1, 48))
         content.addView(label("Your network music, arranged as visual collections.", 13, MUTED), LinearLayout.LayoutParams(-1, 32))
-        val groups = tracks.groupBy { it.album.ifBlank { it.folder.trimEnd('/').substringAfterLast('/') } }.toList().sortedBy { it.first.lowercase() }
+        val groups = libraryStore.loadAlbumGroups(120).map { it.first to libraryStore.tracksInGroup(it.first, 1) }
         if (groups.isEmpty()) showEmpty() else addArtworkGrid(groups)
         addNowPlaying()
     }
@@ -327,9 +327,10 @@ class MainActivity : AppCompatActivity() {
         content.removeAllViews()
         content.addView(label("All tracks", 29, WHITE, true), LinearLayout.LayoutParams(-1, 58))
         content.addView(label(libraryStore.countTracks().toString() + " tracks indexed • showing first " + tracks.size, 13, MUTED), LinearLayout.LayoutParams(-1, 34))
-        if (tracks.isEmpty()) showEmpty()
-        tracks.take(100).forEach { addTrackRow(it) }
-        if (tracks.size > 100) content.addView(label("Showing first 100 loaded tracks. The full index remains saved.", 13, MUTED))
+        val page = libraryStore.loadTracks(limit = 100)
+        if (page.isEmpty()) showEmpty()
+        page.forEach { addTrackRow(it) }
+        if (libraryStore.countTracks() > page.size) content.addView(button("LOAD NEXT 100", false) { showQueuePage(100) }, LinearLayout.LayoutParams(220, 48))
         addNowPlaying()
     }
 
@@ -665,8 +666,8 @@ class MainActivity : AppCompatActivity() {
         var discovered = 0L
         // Keep heap usage bounded: jcifs SmbFile.listFiles() materializes an entire
         // directory into an array. children() enumerates SMB entries incrementally.
-        val batch = ArrayList<Track>(200)
-        val preview = ArrayList<Track>(500)
+        val batch = ArrayList<Track>(100)
+        // SQLite is the scan index; do not keep a separate in-memory preview list.
         try {
             // Do not delete the previous index up front. If the network drops halfway
             // through a large scan, the last known library remains usable.
@@ -692,8 +693,7 @@ class MainActivity : AppCompatActivity() {
                                     if (ext in AUDIO_EXTENSIONS) {
                                         val item = Track(name.substringBeforeLast('.'), file.getURL().toString(), file.getParent() ?: base)
                                         batch.add(item); discovered++
-                                        if (preview.size < 500) preview.add(item)
-                                        if (batch.size >= 200) { libraryStore.upsertBatch(batch); batch.clear() }
+                                        if (batch.size >= 100) { libraryStore.upsertBatch(batch); batch.clear() }
                                     }
                                 }
                             } catch (_: Exception) { }
@@ -708,7 +708,7 @@ class MainActivity : AppCompatActivity() {
                 } catch (_: Exception) { }
             }
             if (batch.isNotEmpty()) libraryStore.upsertBatch(batch)
-            tracks.clear(); tracks.addAll(preview)
+            tracks.clear(); tracks.addAll(libraryStore.loadTracks(limit = 100))
             currentTrack = -1; isScanning = false
             scanStatus = "Scan complete • $discovered tracks"
             runOnUiThread { updateStatus(); refreshScreen(); toast("Indexed $discovered audio files. Browse folders for the complete library.") }
