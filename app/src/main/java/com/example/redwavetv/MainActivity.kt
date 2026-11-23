@@ -529,7 +529,7 @@ class MainActivity : AppCompatActivity() {
         val password = securePrefs.getString("password", "") ?: ""
         val domain = securePrefs.getString("domain", "") ?: ""
         currentShare = share
-        connectAndScan(username, password, domain)
+        connectAndScan(username, password, domain, false)
     }
 
     private fun showSmbDialog() {
@@ -542,7 +542,7 @@ class MainActivity : AppCompatActivity() {
         val domain = field("Workgroup / domain (optional)")
         listOf(host, share, folder, user, pass, domain).forEach { box.addView(it, LinearLayout.LayoutParams(-1, 50)) }
         val dialog = AlertDialog.Builder(this).setTitle("Connect to SMB2 / SMB3")
-            .setMessage("Enter the server and share. RedWave checks folder access before it begins scanning.")
+            .setMessage("Enter the server and share. You can browse folders first or scan the library later.")
             .setView(box).setNegativeButton("CANCEL", null).setPositiveButton("CONNECT & SCAN", null).create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
@@ -576,7 +576,7 @@ class MainActivity : AppCompatActivity() {
         setPadding(8, 0, 8, 0)
     }
 
-    private fun connectAndScan(username: String, password: String, domain: String) {
+    private fun connectAndScan(username: String, password: String, domain: String, startScan: Boolean = true) {
         isScanning = true
         scanStatus = "Connecting"
         showHome()
@@ -597,7 +597,11 @@ class MainActivity : AppCompatActivity() {
                 if (!directory.exists() || !directory.isDirectory) throw IllegalStateException("Share or folder not found: " + base)
                 directory.listFiles()
                 smbContext = ctx
-                performScan(base, ctx)
+                if (startScan) performScan(base, ctx) else {
+                    isScanning = false
+                    scanStatus = "Connected • ready to browse"
+                    runOnUiThread { updateStatus(); showFolders() }
+                }
             } catch (e: Exception) {
                 isScanning = false
                 scanStatus = "Connection failed"
