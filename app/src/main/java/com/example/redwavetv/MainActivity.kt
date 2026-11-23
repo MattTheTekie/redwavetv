@@ -700,8 +700,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun performScan(base: String, ctx: CIFSContext) {
         // Bounded-memory indexing: do not read whole tracks into RAM or extract tags during scan.
-        var visited = 0L
-        var discovered = 0L
+        val resumed = libraryStore.startOrResumeScan(base)
+        val savedProgress = libraryStore.scanProgress()
+        var visited = if (resumed) savedProgress.first else 0L
+        var discovered = if (resumed) savedProgress.second else 0L
         // Keep heap usage bounded: jcifs SmbFile.listFiles() materializes an entire
         // directory into an array. children() enumerates SMB entries incrementally.
         val batch = ArrayList<Track>(100)
@@ -709,8 +711,6 @@ class MainActivity : AppCompatActivity() {
         try {
             // Do not delete the previous index up front. If the network drops halfway
             // through a large scan, the last known library remains usable.
-            libraryStore.clearScanQueue()
-            libraryStore.enqueueDirectory(base, 0)
             while (true) {
                 val nextDirectory = libraryStore.dequeueDirectory() ?: break
                 val (url, depth) = nextDirectory
@@ -747,12 +747,14 @@ class MainActivity : AppCompatActivity() {
                 } catch (_: Exception) { }
             }
             if (batch.isNotEmpty()) libraryStore.upsertBatch(batch)
+            libraryStore.finishScan("COMPLETE", visited, discovered)
             tracks.clear(); tracks.addAll(libraryStore.loadTracks(limit = 100))
             currentTrack = -1; isScanning = false
             scanStatus = "Scan complete • $discovered tracks"
             runOnUiThread { updateStatus(); refreshScreen(); toast("Indexed $discovered audio files. Browse folders for the complete library.") }
         } catch (e: Exception) {
             if (batch.isNotEmpty()) try { libraryStore.upsertBatch(batch) } catch (_: Exception) { }
+            try { libraryStore.finishScan("INTERRUPTED", visited, discovered) } catch (_: Exception) { }
             tracks.clear(); tracks.addAll(libraryStore.loadTracks(limit = 100))
             isScanning = false; scanStatus = "Scan interrupted • $discovered saved"
             runOnUiThread { updateStatus(); refreshScreen(); toast("Scan stopped after saving $discovered tracks: " + (e.message ?: e.javaClass.simpleName)) }
