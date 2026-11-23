@@ -7,10 +7,6 @@ import android.database.sqlite.SQLiteOpenHelper
 
 class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-library.db", null, 1) {
     init { setWriteAheadLoggingEnabled(true) }
-    override fun onConfigure(db: SQLiteDatabase) {
-        super.onConfigure(db)
-        db.enableWriteAheadLogging()
-    }
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE tracks (path TEXT PRIMARY KEY, title TEXT NOT NULL, folder TEXT NOT NULL, artist TEXT NOT NULL, album TEXT NOT NULL, artwork TEXT NOT NULL)")
         db.execSQL("CREATE INDEX tracks_title_idx ON tracks(title COLLATE NOCASE)")
