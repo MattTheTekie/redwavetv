@@ -108,6 +108,7 @@ class MainActivity : AppCompatActivity() {
             Triple("◷  RECENTS", "RECENTS") { showRecents() },
             Triple("★  FAVOURITES", "FAVOURITES") { showFavourites() },
             Triple("♫  TRACKS", "QUEUE") { showQueue() },
+            Triple("⌕  SEARCH", "SEARCH") { showSearch() },
             Triple("▤  FOLDERS", "FOLDERS") { showFolders() },
             Triple("♪  LYRICS", "LYRICS") { showLyrics() },
             Triple("▶  PLAY", "PLAYER") { showPlayer() },
@@ -426,8 +427,40 @@ class MainActivity : AppCompatActivity() {
         names.addView(label(track.title, 15, WHITE, true))
         names.addView(label(track.artist + if (track.album.isNotBlank()) " · " + track.album else " · " + track.folder.trimEnd('/').substringAfterLast('/'), 11, MUTED))
         row.addView(names, LinearLayout.LayoutParams(0, 54, 1f))
+        val favorite = try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }
+        row.addView(button(if (favorite) "★" else "☆", favorite) {
+            try { libraryStore.setFavorite(track.path, !libraryStore.isFavorite(track.path)) } catch (_: Exception) { }
+            if (currentScreen == "FAVOURITES") showFavourites() else if (currentScreen == "PLAYER") showPlayer() else refreshScreen()
+        }, LinearLayout.LayoutParams(48, 48))
         row.addView(label("▶", 15, MUTED, true))
         content.addView(row, LinearLayout.LayoutParams(-1, 62).apply { bottomMargin = 6 })
+    }
+
+    private fun showSearch() {
+        currentScreen = "SEARCH"
+        content.removeAllViews()
+        content.addView(label("Search your music", 29, WHITE, true), LinearLayout.LayoutParams(-1, 58))
+        val query = EditText(this).apply { hint = "Search title, artist, album or folder"; setSingleLine(true); textSize = 16f; setTextColor(WHITE); setHintTextColor(MUTED); setPadding(14, 8, 14, 8); background = rounded(SURFACE_HI, 10) }
+        content.addView(query, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 12 })
+        val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        content.addView(results, LinearLayout.LayoutParams(-1, -2))
+        fun runSearch(value: String) {
+            results.removeAllViews()
+            if (value.isBlank()) { results.addView(label("Type to search your indexed library.", 14, MUTED)); return }
+            val matches = try { libraryStore.searchTracks(value, 100) } catch (_: Exception) { emptyList() }
+            if (matches.isEmpty()) results.addView(label("No matching tracks.", 14, MUTED)) else matches.forEach { track ->
+                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+                row.addView(button("▶  ${track.title}  ·  ${track.artist}", false) { playTrack(track) }, LinearLayout.LayoutParams(0, 54, 1f))
+                row.addView(button(if (try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }) "★" else "☆", false) { try { libraryStore.setFavorite(track.path, !libraryStore.isFavorite(track.path)) } catch (_: Exception) {}; runSearch(value) }, LinearLayout.LayoutParams(54, 48))
+                results.addView(row)
+            }
+        }
+        query.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { runSearch(s?.toString() ?: "") }
+            override fun afterTextChanged(s: android.text.Editable?) {}
+        })
+        addNowPlaying()
     }
 
     private fun showRecents() {
@@ -435,7 +468,8 @@ class MainActivity : AppCompatActivity() {
         content.removeAllViews()
         content.addView(label("Recently Played", 29, WHITE, true), LinearLayout.LayoutParams(-1, 58))
         val recent = try { libraryStore.loadRecent(100) } catch (_: Exception) { emptyList() }
-        if (recent.isEmpty()) content.addView(label("Your played songs will appear here.", 14, MUTED)) else recent.forEach { addTrackRow(it) }
+        content.addView(label("Saved play history • ${recent.size} shown", 13, MUTED), LinearLayout.LayoutParams(-1, 30))
+        if (recent.isEmpty()) content.addView(label("Your played songs will appear here. History is saved on this device.", 14, MUTED)) else recent.forEach { addTrackRow(it) }
         addNowPlaying()
     }
 
@@ -490,7 +524,20 @@ class MainActivity : AppCompatActivity() {
             "FAVOURITES" -> showFavourites()
             "FOLDERS" -> showFolders()
             "QUEUE" -> showQueue()
+            "SEARCH" -> showSearch()
             else -> showHome()
+        }
+    }
+
+    private val progressHandler = Handler(Looper.getMainLooper())
+    private var progressSeekBar: SeekBar? = null
+    private val progressUpdater = object : Runnable {
+        override fun run() {
+            val bar = progressSeekBar
+            if (currentScreen == "PLAYER" && bar != null && player.duration > 0 && !bar.isPressed) {
+                bar.progress = ((player.currentPosition.toDouble() / player.duration.toDouble()) * 1000).toInt().coerceIn(0, 1000)
+            }
+            if (currentScreen == "PLAYER") progressHandler.postDelayed(this, 500)
         }
     }
 
@@ -530,6 +577,8 @@ class MainActivity : AppCompatActivity() {
         content.addView(label(track?.album ?: track?.folder?.trimEnd('/')?.substringAfterLast('/') ?: "", 13, MUTED).apply { gravity = Gravity.CENTER; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }, LinearLayout.LayoutParams(-1, 24))
         val seek = SeekBar(this)
         seek.max = 1000
+        progressSeekBar = seek
+        progressHandler.removeCallbacks(progressUpdater)
         if (player.duration > 0) seek.progress = ((player.currentPosition.toDouble() / player.duration.toDouble()) * 1000).toInt().coerceIn(0, 1000)
         seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {}
@@ -540,6 +589,10 @@ class MainActivity : AppCompatActivity() {
             }
         })
         content.addView(seek, LinearLayout.LayoutParams(-1, 42))
+        progressHandler.post(progressUpdater)
+        content.addView(button(if (try { libraryStore.isFavorite(track?.path ?: "") } catch (_: Exception) { false }) "★  REMOVE FROM FAVOURITES" else "☆  ADD TO FAVOURITES", false) {
+            if (track != null) { val saved = try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }; try { libraryStore.setFavorite(track.path, !saved) } catch (_: Exception) { }; showPlayer() }
+        }, LinearLayout.LayoutParams(-1, 46))
         val controls = LinearLayout(this).apply { gravity = Gravity.CENTER; orientation = LinearLayout.HORIZONTAL }
         controls.addView(button("PREVIOUS", false) { playPrevious() }, LinearLayout.LayoutParams(120, 54))
         controls.addView(button(if (player.isPlaying) "Ⅱ  PAUSE" else "▶  PLAY", true) { if (player.isPlaying) player.pause() else player.play(); showPlayer() }, LinearLayout.LayoutParams(150, 54).apply { leftMargin = 12; rightMargin = 12 })
@@ -948,7 +1001,14 @@ class MainActivity : AppCompatActivity() {
         return super.onKeyDown(keyCode, event)
     }
 
-    override fun onDestroy() { lyricsHandler.removeCallbacksAndMessages(null); player.release(); super.onDestroy() }
+    override fun onDestroy() {
+        progressHandler.removeCallbacksAndMessages(null)
+        lyricsHandler.removeCallbacksAndMessages(null)
+        try { libraryStore.writableDatabase.execSQL("PRAGMA wal_checkpoint(FULL)") } catch (_: Exception) { }
+        try { libraryStore.close() } catch (_: Exception) { }
+        player.release()
+        super.onDestroy()
+    }
 
     private class SmbStreamDataSource(private val context: CIFSContext) : DataSource {
         private var stream: SmbFileInputStream? = null
