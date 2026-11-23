@@ -95,7 +95,9 @@ class MainActivity : AppCompatActivity() {
         header.addView(brand, LinearLayout.LayoutParams(145, 54))
         val tabs = listOf(
             Triple("⌂  HOME", "HOME") { showHome() },
-            Triple("▦  ALBUMS", "ALBUMS") { showAlbums() },
+            Triple("▣  ALBUMS", "ALBUMS") { showAlbums() },
+            Triple("◷  RECENTS", "RECENTS") { showRecents() },
+            Triple("★  FAVOURITES", "FAVOURITES") { showFavourites() },
             Triple("♫  TRACKS", "QUEUE") { showQueue() },
             Triple("▤  FOLDERS", "FOLDERS") { showFolders() },
             Triple("♪  LYRICS", "LYRICS") { showLyrics() },
@@ -326,7 +328,8 @@ class MainActivity : AppCompatActivity() {
                         }, LinearLayout.LayoutParams(-1, 48).apply { bottomMargin = 6 })
                     }
                     if (page.isEmpty() && offset == 0) content.addView(label("This folder is empty.", 15, MUTED))
-                    page.forEach { file ->
+                    val sortedPage = page.sortedWith(compareBy<SmbFile>({ !it.isDirectory }, { it.getName().trimEnd('/').lowercase() }))
+                    sortedPage.forEach { file ->
                         val name = file.getName().trimEnd('/')
                         if (file.isDirectory) {
                             content.addView(button("▤   $name   ›", false) { showRemoteFolder(file.getURL().toString()) }, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 6 })
@@ -410,6 +413,24 @@ class MainActivity : AppCompatActivity() {
         content.addView(row, LinearLayout.LayoutParams(-1, 62).apply { bottomMargin = 6 })
     }
 
+    private fun showRecents() {
+        currentScreen = "RECENTS"
+        content.removeAllViews()
+        content.addView(label("Recently Played", 29, WHITE, true), LinearLayout.LayoutParams(-1, 58))
+        val recent = try { libraryStore.loadRecent(100) } catch (_: Exception) { emptyList() }
+        if (recent.isEmpty()) content.addView(label("Your played songs will appear here.", 14, MUTED)) else recent.forEach { addTrackRow(it) }
+        addNowPlaying()
+    }
+
+    private fun showFavourites() {
+        currentScreen = "FAVOURITES"
+        content.removeAllViews()
+        content.addView(label("Favourites", 29, WHITE, true), LinearLayout.LayoutParams(-1, 58))
+        val favourites = try { libraryStore.loadFavorites(100) } catch (_: Exception) { emptyList() }
+        if (favourites.isEmpty()) content.addView(label("Press ☆ beside a song to save it here.", 14, MUTED)) else favourites.forEach { addTrackRow(it) }
+        addNowPlaying()
+    }
+
     private fun addNowPlaying() {
         if (!::bottomPlayer.isInitialized) return
         bottomPlayer.visibility = if (currentScreen == "PLAYER" || currentScreen == "LYRICS") View.GONE else View.VISIBLE
@@ -448,6 +469,8 @@ class MainActivity : AppCompatActivity() {
             "PLAYER" -> showPlayer()
             "LYRICS" -> showLyrics()
             "ALBUMS" -> showAlbums()
+            "RECENTS" -> showRecents()
+            "FAVOURITES" -> showFavourites()
             "FOLDERS" -> showFolders()
             "QUEUE" -> showQueue()
             else -> showHome()
@@ -801,6 +824,7 @@ class MainActivity : AppCompatActivity() {
             val ctx = smbContext ?: throw IllegalStateException("Connect to your SMB share first")
             currentTrack = tracks.indexOfFirst { it.path == track.path }
             playingTrack = track
+            try { libraryStore.recordPlay(track.path) } catch (_: Exception) { }
             currentLyrics = emptyList()
             lyricsStatus = "Choose a track to look for an .lrc file"
             val factory = DataSource.Factory { SmbStreamDataSource(ctx) }
