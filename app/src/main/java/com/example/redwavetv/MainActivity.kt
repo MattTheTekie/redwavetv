@@ -284,16 +284,32 @@ class MainActivity : AppCompatActivity() {
         addNowPlaying()
     }
 
-    private fun showRemoteFolder(path: String) {
+    private fun showRemoteFolder(path: String, offset: Int = 0) {
         currentScreen = "FOLDERS"
         content.removeAllViews()
         val title = path.trimEnd('/').substringAfterLast('/').ifBlank { "SMB share" }
         content.addView(label("FOLDERS  /  $title", 25, WHITE, true), LinearLayout.LayoutParams(-1, 48))
-        content.addView(label("Browse directly without scanning the entire share.", 13, MUTED), LinearLayout.LayoutParams(-1, 30))
+        content.addView(label("Browse every item in this folder • page ${offset / 100 + 1}", 13, MUTED), LinearLayout.LayoutParams(-1, 30))
         thread(name = "redwave-folder-browse") {
             try {
                 val ctx = smbContext ?: return@thread
-                val children = SmbFile(path, ctx).listFiles().sortedWith(compareBy<SmbFile> { !it.isDirectory }.thenBy { it.getName().lowercase() })
+                val directory = SmbFile(path, ctx)
+                val iterator = directory.children()
+                val page = ArrayList<SmbFile>(100)
+                var visibleIndex = 0
+                var hasMore = false
+                try {
+                    while (iterator.hasNext()) {
+                        val file = iterator.next() as SmbFile
+                        val name = file.getName().trimEnd('/')
+                        val isAudio = !file.isDirectory && name.substringAfterLast('.', "").lowercase() in AUDIO_EXTENSIONS
+                        if (!file.isDirectory && !isAudio) continue
+                        if (visibleIndex++ < offset) continue
+                        if (page.size < 100) page.add(file) else { hasMore = true; break }
+                    }
+                } finally {
+                    try { iterator.close() } catch (_: Exception) { }
+                }
                 runOnUiThread {
                     if (currentScreen != "FOLDERS") return@runOnUiThread
                     if (path.trimEnd('/') != currentShare.trimEnd('/')) {
@@ -302,19 +318,21 @@ class MainActivity : AppCompatActivity() {
                             showRemoteFolder(parent ?: currentShare)
                         }, LinearLayout.LayoutParams(-1, 48).apply { bottomMargin = 6 })
                     }
-                    if (children.isEmpty()) content.addView(label("This folder is empty.", 15, MUTED))
-                    children.take(200).forEach { file ->
+                    if (page.isEmpty() && offset == 0) content.addView(label("This folder is empty.", 15, MUTED))
+                    page.forEach { file ->
                         val name = file.getName().trimEnd('/')
                         if (file.isDirectory) {
                             content.addView(button("▤   $name   ›", false) { showRemoteFolder(file.getURL().toString()) }, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 6 })
                         } else {
-                            val ext = name.substringAfterLast('.', "").lowercase()
-                            if (ext in AUDIO_EXTENSIONS) content.addView(button("♫   " + name.substringBeforeLast('.'), false) {
+                            content.addView(button("♫   " + name.substringBeforeLast('.'), false) {
                                 playTrack(Track(name.substringBeforeLast('.'), file.getURL().toString(), file.getParent() ?: path))
                             }, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 6 })
                         }
                     }
-                    if (children.size > 200) content.addView(label("Showing first 200 items in this folder. Open a narrower folder to browse more.", 13, MUTED))
+                    val nav = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setPadding(0, 12, 0, 12) }
+                    if (offset > 0) nav.addView(button("PREVIOUS 100", false) { showRemoteFolder(path, (offset - 100).coerceAtLeast(0)) }, LinearLayout.LayoutParams(180, 48).apply { rightMargin = 8 })
+                    if (hasMore) nav.addView(button("NEXT 100", false) { showRemoteFolder(path, offset + 100) }, LinearLayout.LayoutParams(180, 48))
+                    if (nav.childCount > 0) content.addView(nav, LinearLayout.LayoutParams(-1, 64))
                     addNowPlaying()
                 }
             } catch (e: Exception) {
