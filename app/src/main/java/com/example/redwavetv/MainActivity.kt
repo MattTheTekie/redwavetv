@@ -263,6 +263,15 @@ class MainActivity : AppCompatActivity() {
         content.addView(label(track?.folder?.trimEnd('/')?.substringAfterLast('/') ?: "Choose a song from your library", 14, MUTED).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(-1, 30))
         val seek = SeekBar(this)
         seek.max = 1000
+        if (player.duration > 0) seek.progress = ((player.currentPosition.toDouble() / player.duration.toDouble()) * 1000).toInt().coerceIn(0, 1000)
+        seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {}
+            override fun onStartTrackingTouch(bar: SeekBar?) {}
+            override fun onStopTrackingTouch(bar: SeekBar?) {
+                val duration = player.duration
+                if (duration > 0 && bar != null) player.seekTo((duration * bar.progress / 1000).toLong())
+            }
+        })
         content.addView(seek, LinearLayout.LayoutParams(-1, 42))
         val controls = LinearLayout(this).apply { gravity = Gravity.CENTER; orientation = LinearLayout.HORIZONTAL }
         controls.addView(button("PREVIOUS", false) { if (currentTrack > 0) playTrack(tracks[currentTrack - 1]) }, LinearLayout.LayoutParams(120, 54))
