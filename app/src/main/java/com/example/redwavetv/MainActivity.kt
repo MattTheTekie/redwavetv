@@ -384,7 +384,7 @@ class MainActivity : AppCompatActivity() {
         currentScreen = "PLAYER"
         content.removeAllViews()
         val track = tracks.getOrNull(currentTrack)
-        content.addView(label("NOW PLAYING", 12, RED, true), LinearLayout.LayoutParams(-1, 40))
+        content.addView(label("NOW PLAYING", 12, RED, true), LinearLayout.LayoutParams(-1, 34))
         val art = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
@@ -396,10 +396,13 @@ class MainActivity : AppCompatActivity() {
         } else {
             art.addView(label("♫", 92, WHITE, true).apply { gravity = Gravity.CENTER })
         }
-        content.addView(art, LinearLayout.LayoutParams(300, 250).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = 12; bottomMargin = 18 })
-        content.addView(label(track?.title ?: "Nothing playing", 25, WHITE, true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(-1, 38))
-        content.addView(label(track?.artist ?: "Choose a song from your library", 15, MUTED).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(-1, 28))
-        content.addView(label(track?.album ?: track?.folder?.trimEnd('/')?.substringAfterLast('/') ?: "", 12, MUTED).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(-1, 24))
+        val density = resources.displayMetrics.density
+        val availableWidthDp = (resources.displayMetrics.widthPixels / density).toInt() - 72
+        val coverSize = (availableWidthDp * 0.48f).toInt().coerceIn(176, 360)
+        content.addView(art, LinearLayout.LayoutParams(coverSize, coverSize).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = 8; bottomMargin = 14 })
+        content.addView(label(track?.title ?: "Nothing playing", 22, WHITE, true).apply { gravity = Gravity.CENTER; maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 6 })
+        content.addView(label(track?.artist ?: "Choose a song from your library", 15, MUTED).apply { gravity = Gravity.CENTER; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }, LinearLayout.LayoutParams(-1, 26))
+        content.addView(label(track?.album ?: track?.folder?.trimEnd('/')?.substringAfterLast('/') ?: "", 13, MUTED).apply { gravity = Gravity.CENTER; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }, LinearLayout.LayoutParams(-1, 24))
         val seek = SeekBar(this)
         seek.max = 1000
         if (player.duration > 0) seek.progress = ((player.currentPosition.toDouble() / player.duration.toDouble()) * 1000).toInt().coerceIn(0, 1000)
