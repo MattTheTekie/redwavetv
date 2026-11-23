@@ -5,7 +5,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-library.db", null, 4) {
+class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-library.db", null, 5) {
     init { setWriteAheadLoggingEnabled(true) }
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE tracks (path TEXT PRIMARY KEY, title TEXT NOT NULL, folder TEXT NOT NULL, artist TEXT NOT NULL, album TEXT NOT NULL, artwork TEXT NOT NULL)")
@@ -20,6 +20,10 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         if (oldVersion < 4) {
             db.execSQL("DELETE FROM scan_queue WHERE id NOT IN (SELECT MIN(id) FROM scan_queue GROUP BY path)")
             db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS scan_queue_path_idx ON scan_queue(path)")
+        }
+        if (oldVersion < 5) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS favorites (path TEXT PRIMARY KEY)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS play_history (path TEXT PRIMARY KEY, played_at INTEGER NOT NULL)")
         }
     }
     override fun onConfigure(db: SQLiteDatabase) { super.onConfigure(db); db.execSQL("PRAGMA cache_size=-2048"); db.execSQL("PRAGMA temp_store=FILE"); db.execSQL("PRAGMA mmap_size=0") }
@@ -82,6 +86,24 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         readableDatabase.rawQuery("SELECT title,path,folder,artist,album,artwork FROM tracks WHERE (CASE WHEN album != '' THEN album ELSE folder END)=? ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?", arrayOf(group,limit.toString(),offset.toString())).use { c ->
             while (c.moveToNext()) result.add(Track(c.getString(0),c.getString(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5)))
         }
+        return result
+    }
+    @Synchronized fun setFavorite(path: String, favorite: Boolean) {
+        if (favorite) {
+            val values = ContentValues().apply { put("path", path) }
+            writableDatabase.insertWithOnConflict("favorites", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+        } else writableDatabase.delete("favorites", "path=?", arrayOf(path))
+    }
+    fun isFavorite(path: String): Boolean = readableDatabase.rawQuery("SELECT 1 FROM favorites WHERE path=? LIMIT 1", arrayOf(path)).use { it.moveToFirst() }
+    @Synchronized fun recordPlay(path: String) {
+        val values = ContentValues().apply { put("path", path); put("played_at", System.currentTimeMillis()) }
+        writableDatabase.insertWithOnConflict("play_history", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+    fun loadRecent(limit: Int = 100): List<Track> = queryTrackRows("SELECT t.title,t.path,t.folder,t.artist,t.album,t.artwork FROM tracks t INNER JOIN play_history h ON h.path=t.path ORDER BY h.played_at DESC LIMIT ?", arrayOf(limit.toString()), limit)
+    fun loadFavorites(limit: Int = 100): List<Track> = queryTrackRows("SELECT t.title,t.path,t.folder,t.artist,t.album,t.artwork FROM tracks t INNER JOIN favorites f ON f.path=t.path ORDER BY t.title COLLATE NOCASE LIMIT ?", arrayOf(limit.toString()), limit)
+    private fun queryTrackRows(sql: String, args: Array<String>, limit: Int): List<Track> {
+        val result = ArrayList<Track>(limit.coerceAtMost(500))
+        readableDatabase.rawQuery(sql, args).use { c -> while (c.moveToNext()) result.add(Track(c.getString(0),c.getString(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5))) }
         return result
     }
     fun replaceTracks(tracks: List<Track>) {
