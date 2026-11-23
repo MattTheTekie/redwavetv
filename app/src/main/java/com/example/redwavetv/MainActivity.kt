@@ -157,8 +157,8 @@ class MainActivity : AppCompatActivity() {
         val heroCopy = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         heroCopy.addView(label("ALL YOUR MUSIC.\nONE BEAUTIFUL LIBRARY.", 25, WHITE, true), LinearLayout.LayoutParams(-1, 78))
         heroCopy.addView(label(libraryStore.countTracks().toString() + " songs indexed  ·  browse folders anytime", 13, 0xFFE2D9E0.toInt()))
-        heroCopy.addView(button(if (smbContext == null && securePrefs.getString("share", null) != null) "CONNECT SAVED SHARE" else if (smbContext == null) "ADD MUSIC SHARE" else "SCAN LIBRARY", true) {
-            if (smbContext != null) scanShare() else if (securePrefs.getString("share", null) != null) connectSavedShare() else showSmbDialog()
+        heroCopy.addView(button(if (smbContext == null && currentShare.isNotBlank()) "CONNECT SAVED SHARE" else if (smbContext == null) "ADD MUSIC SHARE" else "SCAN LIBRARY", true) {
+            if (smbContext != null) scanShare() else if (currentShare.isNotBlank()) connectSavedShare() else showSmbDialog()
         }, LinearLayout.LayoutParams(210, 44).apply { topMargin = 12 })
         hero.addView(heroCopy, LinearLayout.LayoutParams(0, -2, 1f))
         hero.addView(label("♫", 86, 0xFFFFA4B5.toInt(), true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(150, 130))
@@ -537,6 +537,7 @@ class MainActivity : AppCompatActivity() {
         currentShare = securePrefs.getString("share", null) ?: return
         scanStatus = "Saved share • not connected"
         updateStatus()
+        showHome()
     }
 
     private fun connectSavedShare() {
