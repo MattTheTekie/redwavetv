@@ -314,21 +314,21 @@ class MainActivity : AppCompatActivity() {
                 val ctx = smbContext ?: return@thread
                 val directory = SmbFile(path, ctx)
                 val iterator = directory.children()
-                val page = ArrayList<SmbFile>(100)
-                var visibleIndex = 0
-                var hasMore = false
+                val allVisible = ArrayList<SmbFile>()
                 try {
                     while (iterator.hasNext()) {
                         val file = iterator.next() as SmbFile
                         val name = file.getName().trimEnd('/')
                         val isAudio = !file.isDirectory && name.substringAfterLast('.', "").lowercase() in AUDIO_EXTENSIONS
-                        if (!file.isDirectory && !isAudio) continue
-                        if (visibleIndex++ < offset) continue
-                        if (page.size < 100) page.add(file) else { hasMore = true; break }
+                        if (file.isDirectory || isAudio) allVisible.add(file)
                     }
                 } finally {
                     try { iterator.close() } catch (_: Exception) { }
                 }
+                // Sort the complete directory before paging so subfolders stay first on every page.
+                val sortedAll = allVisible.sortedWith(compareBy<SmbFile>({ !it.isDirectory }, { it.getName().trimEnd('/').lowercase() }))
+                val page = sortedAll.drop(offset).take(100)
+                val hasMore = offset + page.size < sortedAll.size
                 runOnUiThread {
                     if (currentScreen != "FOLDERS") return@runOnUiThread
                     if (path.trimEnd('/') != currentShare.trimEnd('/')) {
@@ -338,8 +338,8 @@ class MainActivity : AppCompatActivity() {
                         }, LinearLayout.LayoutParams(-1, 48).apply { bottomMargin = 6 })
                     }
                     if (page.isEmpty() && offset == 0) content.addView(label("This folder is empty.", 15, MUTED))
-                    val sortedPage = page.sortedWith(compareBy<SmbFile>({ !it.isDirectory }, { it.getName().trimEnd('/').lowercase() }))
-                    val folderQueue = sortedPage.filter { !it.isDirectory }.map { file ->
+                    val sortedPage = page
+                    val folderQueue = sortedAll.filter { !it.isDirectory }.map { file ->
                         val name = file.getName().trimEnd('/')
                         Track(name.substringBeforeLast('.'), file.getURL().toString(), file.getParent() ?: path)
                     }
