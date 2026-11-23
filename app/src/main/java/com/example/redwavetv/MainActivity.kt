@@ -746,6 +746,7 @@ class MainActivity : AppCompatActivity() {
                         try { iterator.close() } catch (_: Exception) { }
                     }
                 } catch (_: Exception) { }
+                libraryStore.completeDirectory(url)
             }
             if (batch.isNotEmpty()) libraryStore.upsertBatch(batch)
             libraryStore.finishScan("COMPLETE", visited, discovered)
