@@ -5,15 +5,28 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-library.db", null, 1) {
+class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-library.db", null, 2) {
     init { setWriteAheadLoggingEnabled(true) }
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE tracks (path TEXT PRIMARY KEY, title TEXT NOT NULL, folder TEXT NOT NULL, artist TEXT NOT NULL, album TEXT NOT NULL, artwork TEXT NOT NULL)")
         db.execSQL("CREATE INDEX tracks_title_idx ON tracks(title COLLATE NOCASE)")
         db.execSQL("CREATE INDEX tracks_folder_idx ON tracks(folder)")
         db.execSQL("CREATE INDEX tracks_album_idx ON tracks(album)")
+        db.execSQL("CREATE TABLE scan_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, depth INTEGER NOT NULL)")
     }
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) { if (oldVersion < 2) db.execSQL("CREATE TABLE IF NOT EXISTS scan_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, depth INTEGER NOT NULL)") }
+    @Synchronized fun clearScanQueue() { writableDatabase.delete("scan_queue", null, null) }
+    @Synchronized fun enqueueDirectory(path: String, depth: Int) { val v = ContentValues().apply { put("path", path); put("depth", depth) }; writableDatabase.insert("scan_queue", null, v) }
+    @Synchronized fun dequeueDirectory(): Pair<String, Int>? {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val item = db.rawQuery("SELECT id,path,depth FROM scan_queue ORDER BY id LIMIT 1", null).use { c -> if (c.moveToFirst()) Triple(c.getLong(0), c.getString(1), c.getInt(2)) else null } ?: run { db.setTransactionSuccessful(); return null }
+            db.delete("scan_queue", "id=?", arrayOf(item.first.toString()))
+            db.setTransactionSuccessful()
+            return Pair(item.second, item.third)
+        } finally { db.endTransaction() }
+    }
     fun clearTracks() { writableDatabase.delete("tracks", null, null) }
     fun upsertBatch(tracks: List<Track>) {
         if (tracks.isEmpty()) return
