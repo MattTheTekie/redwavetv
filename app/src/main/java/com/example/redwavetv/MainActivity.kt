@@ -714,7 +714,7 @@ class MainActivity : AppCompatActivity() {
             while (true) {
                 val nextDirectory = libraryStore.dequeueDirectory() ?: break
                 val (url, depth) = nextDirectory
-                if (depth > 40) continue
+                if (depth > 40) { libraryStore.completeDirectory(url); continue }
                 try {
                     val directory = SmbFile(url, ctx)
                     val iterator = directory.children()
