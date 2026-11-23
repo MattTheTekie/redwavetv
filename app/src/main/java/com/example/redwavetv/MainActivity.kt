@@ -729,7 +729,7 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread { updateStatus(); refreshScreen(); toast("Indexed $discovered audio files. Browse folders for the complete library.") }
         } catch (e: Exception) {
             if (batch.isNotEmpty()) try { libraryStore.upsertBatch(batch) } catch (_: Exception) { }
-            tracks.clear(); tracks.addAll(preview)
+            tracks.clear(); tracks.addAll(libraryStore.loadTracks(limit = 100))
             isScanning = false; scanStatus = "Scan interrupted • $discovered saved"
             runOnUiThread { updateStatus(); refreshScreen(); toast("Scan stopped after saving $discovered tracks: " + (e.message ?: e.javaClass.simpleName)) }
         }
