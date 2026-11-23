@@ -398,7 +398,7 @@ class MainActivity : AppCompatActivity() {
         content.addView(label(title, 27, WHITE, true), LinearLayout.LayoutParams(-1, 58))
         content.addView(label(songs.size.toString() + " tracks", 13, MUTED), LinearLayout.LayoutParams(-1, 34))
         if (songs.isNotEmpty()) content.addView(button("▶  PLAY ALBUM / FOLDER", true) { playTrack(songs.first(), songs) }, LinearLayout.LayoutParams(-1, 48).apply { bottomMargin = 8 })
-        songs.take(100).forEach { addTrackRow(it) }
+        songs.take(100).forEach { addTrackRow(it, songs) }
         if (songs.size > 100) content.addView(label("Showing first 100 tracks in this folder.", 13, MUTED))
         addNowPlaying()
     }
@@ -410,7 +410,7 @@ class MainActivity : AppCompatActivity() {
         content.addView(box, LinearLayout.LayoutParams(-1, 120).apply { topMargin = 12 })
     }
 
-    private fun addTrackRow(track: Track) {
+    private fun addTrackRow(track: Track, queue: List<Track>? = null) {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -419,7 +419,7 @@ class MainActivity : AppCompatActivity() {
             isFocusable = true
             isClickable = true
             setOnFocusChangeListener { v, focus -> v.background = rounded(if (focus) RED else SURFACE, 10) }
-            setOnClickListener { playTrack(track) }
+            setOnClickListener { playTrack(track, queue) }
         }
         row.addView(label("♫", 22, RED, true), LinearLayout.LayoutParams(44, 48))
         val names = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL }
@@ -503,7 +503,8 @@ class MainActivity : AppCompatActivity() {
         modes.addView(button(if (shuffleEnabled) "SHUFFLE ON" else "SHUFFLE OFF", shuffleEnabled) { shuffleEnabled = !shuffleEnabled; player.shuffleModeEnabled = shuffleEnabled; showPlayer() }, LinearLayout.LayoutParams(150, 46))
         modes.addView(button(when (repeatMode) { 1 -> "REPEAT ONE"; 2 -> "REPEAT ALL"; else -> "REPEAT OFF" }, repeatMode != 0) {
             repeatMode = (repeatMode + 1) % 3
-            player.repeatMode = if (repeatMode == 1) com.google.android.exoplayer2.Player.REPEAT_MODE_ONE else if (repeatMode == 2) com.google.android.exoplayer2.Player.REPEAT_MODE_ALL else com.google.android.exoplayer2.Player.REPEAT_MODE_OFF
+            // Manage repeat-all ourselves so the end callback advances through the folder queue.
+            player.repeatMode = if (repeatMode == 1) com.google.android.exoplayer2.Player.REPEAT_MODE_ONE else com.google.android.exoplayer2.Player.REPEAT_MODE_OFF
             showPlayer()
         }, LinearLayout.LayoutParams(150, 46).apply { leftMargin = 10 })
         content.addView(modes, LinearLayout.LayoutParams(-1, 52))
@@ -867,8 +868,15 @@ class MainActivity : AppCompatActivity() {
         try {
             val ctx = smbContext ?: throw IllegalStateException("Connect to your SMB share first")
             if (queue != null) playbackQueue = queue
-            if (playbackQueue.isEmpty()) playbackQueue = tracks
+            else if (playbackQueue.isEmpty() || playbackQueue.none { it.path == track.path }) {
+                val sameFolder = tracks.filter { it.folder == track.folder }
+                playbackQueue = if (sameFolder.isNotEmpty()) sameFolder else tracks
+            }
             queuePosition = playbackQueue.indexOfFirst { it.path == track.path }
+            if (queuePosition < 0) {
+                playbackQueue = listOf(track)
+                queuePosition = 0
+            }
             currentTrack = tracks.indexOfFirst { it.path == track.path }
             playingTrack = track
             try { libraryStore.recordPlay(track.path) } catch (_: Exception) { }
