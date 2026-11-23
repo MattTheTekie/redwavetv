@@ -267,13 +267,51 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showFolders() {
+        if (smbContext != null && currentShare.isNotBlank()) { showRemoteFolder(currentShare); return }
         currentScreen = "FOLDERS"
         content.removeAllViews()
         content.addView(label("Browse folders", 29, WHITE, true), LinearLayout.LayoutParams(-1, 58))
-        val groups = tracks.groupBy { it.folder }.toList().sortedBy { it.first.lowercase() }
-        if (groups.isEmpty()) showEmpty()
-        groups.forEach { (folder, songs) -> content.addView(button("▤   " + folder.trimEnd('/').substringAfterLast('/') + "    ·    " + songs.size, false) { showTrackList(folder, songs) }, LinearLayout.LayoutParams(-1, 58).apply { bottomMargin = 7 }) }
+        content.addView(label("Connect to an SMB share to browse folders before scanning.", 14, MUTED))
+        content.addView(button("＋  CONNECT TO SMB", true) { showSmbDialog() }, LinearLayout.LayoutParams(240, 50))
         addNowPlaying()
+    }
+
+    private fun showRemoteFolder(path: String) {
+        currentScreen = "FOLDERS"
+        content.removeAllViews()
+        val title = path.trimEnd('/').substringAfterLast('/').ifBlank { "SMB share" }
+        content.addView(label("FOLDERS  /  $title", 25, WHITE, true), LinearLayout.LayoutParams(-1, 48))
+        content.addView(label("Browse directly without scanning the entire share.", 13, MUTED), LinearLayout.LayoutParams(-1, 30))
+        thread(name = "redwave-folder-browse") {
+            try {
+                val ctx = smbContext ?: return@thread
+                val children = SmbFile(path, ctx).listFiles().sortedWith(compareBy<SmbFile> { !it.isDirectory }.thenBy { it.getName().lowercase() })
+                runOnUiThread {
+                    if (currentScreen != "FOLDERS") return@runOnUiThread
+                    if (path.trimEnd('/') != currentShare.trimEnd('/')) {
+                        content.addView(button("↑  PARENT FOLDER", false) {
+                            val parent = try { SmbFile(path, smbContext!!).getParent() } catch (_: Exception) { null }
+                            showRemoteFolder(parent ?: currentShare)
+                        }, LinearLayout.LayoutParams(-1, 48).apply { bottomMargin = 6 })
+                    }
+                    if (children.isEmpty()) content.addView(label("This folder is empty.", 15, MUTED))
+                    children.forEach { file ->
+                        val name = file.getName().trimEnd('/')
+                        if (file.isDirectory) {
+                            content.addView(button("▤   $name   ›", false) { showRemoteFolder(file.getURL().toString()) }, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 6 })
+                        } else {
+                            val ext = name.substringAfterLast('.', "").lowercase()
+                            if (ext in AUDIO_EXTENSIONS) content.addView(button("♫   " + name.substringBeforeLast('.'), false) {
+                                playTrack(Track(name.substringBeforeLast('.'), file.getURL().toString(), file.getParent() ?: path))
+                            }, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 6 })
+                        }
+                    }
+                    addNowPlaying()
+                }
+            } catch (e: Exception) {
+                runOnUiThread { if (currentScreen == "FOLDERS") content.addView(label("Could not read folder: " + (e.message ?: "SMB error"), 14, RED)) }
+            }
+        }
     }
 
     private fun showQueue() {
