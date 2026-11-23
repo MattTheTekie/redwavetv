@@ -10,7 +10,7 @@ android {
     defaultConfig {
         applicationId 'com.example.redwavetv'
         minSdk 25
-        targetSdk 28
+        targetSdk 34
         versionCode 1
         versionName '0.1.0'
         ndk { abiFilters 'armeabi-v7a' }
