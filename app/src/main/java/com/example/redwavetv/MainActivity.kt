@@ -352,12 +352,16 @@ class MainActivity : AppCompatActivity() {
             gravity = Gravity.CENTER
             background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF6A172B.toInt(), 0xFF231D3B.toInt(), 0xFF111722.toInt())).apply { cornerRadius = 22f }
         }
-        art.addView(label("♫", 92, WHITE, true).apply { gravity = Gravity.CENTER })
+        if (track?.artworkPath?.isNotBlank() == true && File(track.artworkPath).exists()) {
+            val cover = ImageView(this).apply { scaleType = ImageView.ScaleType.CENTER_CROP; setImageBitmap(BitmapFactory.decodeFile(track.artworkPath)) }
+            art.addView(cover, LinearLayout.LayoutParams(-1, -1))
+        } else {
+            art.addView(label("♫", 92, WHITE, true).apply { gravity = Gravity.CENTER })
+        }
         content.addView(art, LinearLayout.LayoutParams(300, 250).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = 12; bottomMargin = 18 })
         content.addView(label(track?.title ?: "Nothing playing", 25, WHITE, true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(-1, 38))
         content.addView(label(track?.artist ?: "Choose a song from your library", 15, MUTED).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(-1, 28))
         content.addView(label(track?.album ?: track?.folder?.trimEnd('/')?.substringAfterLast('/') ?: "", 12, MUTED).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(-1, 24))
-        if (track?.artworkPath?.isNotBlank() == true) { val cover = ImageView(this).apply { scaleType = ImageView.ScaleType.CENTER_CROP; setImageBitmap(BitmapFactory.decodeFile(track.artworkPath)) }; content.addView(cover, LinearLayout.LayoutParams(260, 210).apply { gravity = Gravity.CENTER_HORIZONTAL }) }
         val seek = SeekBar(this)
         seek.max = 1000
         if (player.duration > 0) seek.progress = ((player.currentPosition.toDouble() / player.duration.toDouble()) * 1000).toInt().coerceIn(0, 1000)
