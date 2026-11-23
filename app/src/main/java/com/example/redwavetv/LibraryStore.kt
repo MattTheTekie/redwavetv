@@ -23,7 +23,7 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         val queued = db.rawQuery("SELECT COUNT(*) FROM scan_queue", null).use { c -> c.moveToFirst(); c.getLong(0) }
         val resume = previous?.first == base && previous.second != "COMPLETE" && queued > 0
         if (!resume) { db.delete("scan_queue", null, null); enqueueDirectory(base, 0) }
-        val values = ContentValues().apply { put("base", base); put("status", "RUNNING") }
+        val values = ContentValues().apply { put("id", 1); put("base", base); put("status", "RUNNING") }
         db.insertWithOnConflict("scan_state", null, values, SQLiteDatabase.CONFLICT_REPLACE)
         return resume
     }
