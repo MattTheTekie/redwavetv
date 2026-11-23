@@ -685,10 +685,11 @@ class MainActivity : AppCompatActivity() {
         try {
             // Do not delete the previous index up front. If the network drops halfway
             // through a large scan, the last known library remains usable.
-            val pending = java.util.ArrayDeque<Pair<String, Int>>()
-            pending.add(Pair(base, 0))
-            while (!pending.isEmpty()) {
-                val (url, depth) = pending.removeLast()
+            libraryStore.clearScanQueue()
+            libraryStore.enqueueDirectory(base, 0)
+            while (true) {
+                val nextDirectory = libraryStore.dequeueDirectory() ?: break
+                val (url, depth) = nextDirectory
                 if (depth > 40) continue
                 try {
                     val directory = SmbFile(url, ctx)
@@ -700,7 +701,7 @@ class MainActivity : AppCompatActivity() {
                             try {
                                 val file = resource as SmbFile
                                 if (file.isDirectory) {
-                                    if (depth < 40) pending.add(Pair(file.getURL().toString(), depth + 1))
+                                    if (depth < 40) libraryStore.enqueueDirectory(file.getURL().toString(), depth + 1)
                                 } else {
                                     val name = file.getName().trimEnd('/')
                                     val ext = name.substringAfterLast('.', "").lowercase()
