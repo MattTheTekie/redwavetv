@@ -190,8 +190,12 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         val safeOffset = offset.coerceAtLeast(0)
         // Use the title index for a quick preview. The previous DISTINCT/GROUP BY
         // expression forced a full 500k-row grouping operation even for 8 Home rows.
+        // The scanner can encounter the same SMB audio item through path aliases.
+        // Match the identity rule already used by search: same title/artist/album in
+        // the same folder is one library entry, while identical songs in other folders
+        // remain separate.
         return queryTrackRows(
-            "SELECT title,path,folder,artist,album,artwork FROM tracks ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?",
+            "SELECT title,path,folder,artist,album,artwork FROM tracks WHERE path IN (SELECT MIN(path) FROM tracks GROUP BY lower(trim(title)), lower(trim(artist)), lower(trim(album)), lower(rtrim(folder, '/'))) ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?",
             arrayOf(safeLimit.toString(), safeOffset.toString()), safeLimit
         )
     }
