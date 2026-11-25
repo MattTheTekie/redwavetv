@@ -1023,7 +1023,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun rounded(color: Int, radius: Int) = GradientDrawable().apply { setColor(color); cornerRadius = radius.toFloat() }
-    private fun toast(message: String) {\n        // Avoid framework Toast layout inflation on older Android TV builds.\n        scanStatus = message\n        if (::statusText.isInitialized) statusText.text = message\n    }
+    private fun toast(message: String) {
+        // Avoid framework Toast layout inflation on older Android TV builds.
+        scanStatus = message
+        if (::statusText.isInitialized) statusText.text = message
+    }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         when (keyCode) {
