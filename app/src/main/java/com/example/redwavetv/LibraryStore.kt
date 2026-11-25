@@ -5,13 +5,15 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-library.db", null, 5) {
+class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-library.db", null, 6) {
     init { setWriteAheadLoggingEnabled(true) }
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE tracks (path TEXT PRIMARY KEY, title TEXT NOT NULL, folder TEXT NOT NULL, artist TEXT NOT NULL, album TEXT NOT NULL, artwork TEXT NOT NULL)")
         db.execSQL("CREATE INDEX tracks_title_idx ON tracks(title COLLATE NOCASE)")
         db.execSQL("CREATE INDEX tracks_folder_idx ON tracks(folder)")
-        db.execSQL("CREATE INDEX tracks_album_idx ON tracks(album)")
+        db.execSQL("CREATE INDEX tracks_album_idx ON tracks(album COLLATE NOCASE)")
+        db.execSQL("CREATE INDEX tracks_artist_idx ON tracks(artist COLLATE NOCASE)")
+        db.execSQL("CREATE INDEX tracks_folder_nocase_idx ON tracks(folder COLLATE NOCASE)")
         db.execSQL("CREATE TABLE scan_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, depth INTEGER NOT NULL)")
         db.execSQL("CREATE UNIQUE INDEX scan_queue_path_idx ON scan_queue(path)")
         db.execSQL("CREATE TABLE scan_state (id INTEGER PRIMARY KEY CHECK(id=1), base TEXT NOT NULL, status TEXT NOT NULL, visited INTEGER NOT NULL DEFAULT 0, discovered INTEGER NOT NULL DEFAULT 0)")
@@ -26,6 +28,11 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         if (oldVersion < 5) {
             db.execSQL("CREATE TABLE IF NOT EXISTS favorites (path TEXT PRIMARY KEY)")
             db.execSQL("CREATE TABLE IF NOT EXISTS play_history (path TEXT PRIMARY KEY, played_at INTEGER NOT NULL)")
+        }
+        if (oldVersion < 6) {
+            db.execSQL("CREATE INDEX IF NOT EXISTS tracks_artist_idx ON tracks(artist COLLATE NOCASE)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS tracks_album_nocase_idx ON tracks(album COLLATE NOCASE)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS tracks_folder_nocase_idx ON tracks(folder COLLATE NOCASE)")
         }
     }
     override fun onConfigure(db: SQLiteDatabase) {
@@ -130,8 +137,13 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         writableDatabase.insertWithOnConflict("play_history", null, values, SQLiteDatabase.CONFLICT_REPLACE)
     }
     fun searchTracks(query: String, limit: Int = 100): List<Track> {
-        val q = "%${query.trim()}%"
-        return queryTrackRows("SELECT title,path,folder,artist,album,artwork FROM tracks WHERE title LIKE ? OR artist LIKE ? OR album LIKE ? OR folder LIKE ? GROUP BY lower(folder), lower(title) ORDER BY title COLLATE NOCASE LIMIT ?", arrayOf(q,q,q,q,limit.toString()), limit)
+        val q = query.trim().replace("%", "\\%").replace("_", "\\_") + "%"
+        // Prefix matching uses NOCASE indexes; contains-wildcards forced a full scan
+        // of the entire library for every character typed.
+        return queryTrackRows(
+            "SELECT title,path,folder,artist,album,artwork FROM tracks WHERE title LIKE ? ESCAPE '\\\\' OR artist LIKE ? ESCAPE '\\\\' OR album LIKE ? ESCAPE '\\\\' OR folder LIKE ? ESCAPE '\\\\' GROUP BY lower(title),lower(artist),lower(album),lower(folder) ORDER BY title COLLATE NOCASE LIMIT ?",
+            arrayOf(q,q,q,q,limit.toString()), limit
+        )
     }
     fun loadRecent(limit: Int = 100): List<Track> = queryTrackRows("SELECT t.title,t.path,t.folder,t.artist,t.album,t.artwork FROM tracks t INNER JOIN play_history h ON h.path=t.path ORDER BY h.played_at DESC LIMIT ?", arrayOf(limit.toString()), limit)
     fun loadFavorites(limit: Int = 100): List<Track> = queryTrackRows("SELECT t.title,t.path,t.folder,t.artist,t.album,t.artwork FROM tracks t INNER JOIN favorites f ON f.path=t.path ORDER BY t.title COLLATE NOCASE LIMIT ?", arrayOf(limit.toString()), limit)
