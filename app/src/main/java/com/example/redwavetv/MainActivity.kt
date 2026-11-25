@@ -576,7 +576,7 @@ class MainActivity : AppCompatActivity() {
             if (currentScreen == "FAVOURITES") showFavourites() else if (currentScreen == "PLAYER") showPlayer() else refreshScreen()
         }, LinearLayout.LayoutParams(36, 36))
         row.addView(label("▶", 13, MUTED, true))
-        content.addView(row, LinearLayout.LayoutParams(-1, 62).apply { bottomMargin = 6 })
+        parent.addView(row, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 6 })
     }
 
     private fun showSearch() {
@@ -801,7 +801,8 @@ class MainActivity : AppCompatActivity() {
         }, LinearLayout.LayoutParams(-1, 46))
         val controls = LinearLayout(this).apply { gravity = Gravity.CENTER; orientation = LinearLayout.HORIZONTAL }
         controls.addView(button("PREVIOUS", false) { playPrevious() }, LinearLayout.LayoutParams(120, 54))
-        controls.addView(button(if (player.playWhenReady) "Ⅱ  PAUSE" else "▶  PLAY", true) { player.playWhenReady = !player.playWhenReady; updatePlaybackButtons() }, LinearLayout.LayoutParams(150, 54).apply { leftMargin = 12; rightMargin = 12 }.also { playerPlayPause = controls.getChildAt(1) as? TextView })
+        val playerToggle = button(if (player.playWhenReady) "Ⅱ  PAUSE" else "▶  PLAY", true) { player.playWhenReady = !player.playWhenReady; updatePlaybackButtons() }.apply { playerPlayPause = this }
+        controls.addView(playerToggle, LinearLayout.LayoutParams(150, 54).apply { leftMargin = 12; rightMargin = 12 })
         controls.addView(button("NEXT", false) { playNext() }, LinearLayout.LayoutParams(120, 54))
         content.addView(controls, LinearLayout.LayoutParams(-1, 62))
         content.addView(button("OPEN LYRICS", false) { showLyrics() }, LinearLayout.LayoutParams(210, 40).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = 4 })
