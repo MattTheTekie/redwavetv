@@ -418,20 +418,16 @@ class MainActivity : AppCompatActivity() {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 homeRecentTracks = recent
                 homeFavoriteTracks = favourites
-                homeRandomTracks = randomPicks
+                if (!randomSelectionLoaded) homeRandomTracks = randomPicks
                 homeLatestTracks = latest
                 homeFavoritePaths = favouritePaths
                 homeIndexedCount = count
                 homeDataLoaded = true
                 randomSelectionLoaded = true
-                if (playingTrack == null && restored != null) {
-                    playingTrack = restored
-                    if (currentScreen == "HOME") addNowPlaying()
-                }
-                if (currentScreen == "HOME") {
-                    countLabel.text = "$count songs indexed · browse folders anytime"
-                    populateHomeColumns(homeColumns)
-                }
+                if (playingTrack == null && restored != null) playingTrack = restored
+                // Rebuild the currently attached Home view, not the view instance that
+                // may have been detached while the database work was in progress.
+                if (currentScreen == "HOME") showHome()
             }
         }
     }
