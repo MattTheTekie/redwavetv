@@ -157,6 +157,19 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         } else writableDatabase.delete("favorites", "path=?", arrayOf(path))
     }
     fun isFavorite(path: String): Boolean = readableDatabase.rawQuery("SELECT 1 FROM favorites WHERE path=? LIMIT 1", arrayOf(path)).use { it.moveToFirst() }
+    fun favoritePaths(paths: List<String>): Set<String> {
+        if (paths.isEmpty()) return emptySet()
+        val result = HashSet<String>()
+        // SQLite on older Android versions limits bound variables to 999.
+        paths.distinct().chunked(900).forEach { batch ->
+            val placeholders = batch.joinToString(",") { "?" }
+            readableDatabase.rawQuery(
+                "SELECT path FROM favorites WHERE path IN ($placeholders)",
+                batch.toTypedArray()
+            ).use { cursor -> while (cursor.moveToNext()) result.add(cursor.getString(0)) }
+        }
+        return result
+    }
     @Synchronized fun recordPlay(path: String) {
         val values = ContentValues().apply { put("path", path); put("played_at", System.currentTimeMillis()) }
         writableDatabase.insertWithOnConflict("play_history", null, values, SQLiteDatabase.CONFLICT_REPLACE)
