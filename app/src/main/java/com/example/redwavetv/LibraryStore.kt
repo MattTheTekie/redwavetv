@@ -141,7 +141,7 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         // Contains matching finds terms inside titles, artists, albums and folders.
         // It runs on the search executor and is paged so the UI never loads the whole library.
         return queryTrackRows(
-            "SELECT title,path,folder,artist,album,artwork FROM tracks WHERE title LIKE ? OR artist LIKE ? OR album LIKE ? OR folder LIKE ? GROUP BY lower(title),lower(artist),lower(album),lower(folder) ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?",
+            "SELECT title,path,folder,artist,album,artwork FROM tracks WHERE path IN (SELECT MIN(path) FROM tracks WHERE title LIKE ? OR artist LIKE ? OR album LIKE ? OR folder LIKE ? GROUP BY lower(trim(title)), lower(trim(artist)), lower(trim(album)), lower(rtrim(folder, '/'))) ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?",
             arrayOf(q,q,q,q,limit.toString(),offset.toString()), limit
         )
     }
@@ -180,7 +180,11 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         upsertBatch(tracks)
     }
     fun countTracks(): Long {
-        readableDatabase.rawQuery("SELECT COUNT(*) FROM tracks", null).use { it.moveToFirst(); return it.getLong(0) }
+        // Count unique songs, not SMB path aliases or duplicate copies in the same folder.
+        readableDatabase.rawQuery(
+            "SELECT COUNT(*) FROM (SELECT 1 FROM tracks GROUP BY lower(trim(title)), lower(trim(artist)), lower(trim(album)), lower(rtrim(folder, '/')))",
+            null
+        ).use { it.moveToFirst(); return it.getLong(0) }
     }
     fun loadTracks(limit: Int = 100, offset: Int = 0): List<Track> {
         val safeLimit = limit.coerceIn(1, 5000)
@@ -188,7 +192,9 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         val result = ArrayList<Track>(safeLimit.coerceAtMost(500))
         // Explicit SQL pagination is consistent across older Android SQLite versions.
         readableDatabase.rawQuery(
-            "SELECT title,path,folder,artist,album,artwork FROM tracks ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?",
+            "SELECT title,path,folder,artist,album,artwork FROM tracks " +
+                "WHERE path IN (SELECT MIN(path) FROM tracks GROUP BY lower(trim(title)), lower(trim(artist)), lower(trim(album)), lower(rtrim(folder, '/'))) " +
+                "ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?",
             arrayOf(safeLimit.toString(), safeOffset.toString())
         ).use { cursor ->
             while (cursor.moveToNext()) {
