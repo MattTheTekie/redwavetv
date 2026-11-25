@@ -805,7 +805,7 @@ class MainActivity : AppCompatActivity() {
             val username = securePrefs.getString("username", "") ?: ""
             val password = securePrefs.getString("password", "") ?: ""
             val domain = securePrefs.getString("domain", "") ?: ""
-            connectAndScan(username, password, domain, safeTrackCount() == 0)
+            connectAndScan(username, password, domain, safeTrackCount() == 0L)
         } catch (_: Exception) {
             toast("Could not read saved SMB login. Please reconnect.")
             showSmbDialog()
