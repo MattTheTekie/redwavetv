@@ -333,7 +333,7 @@ class MainActivity : AppCompatActivity() {
         val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         addHomeSection(left, "RECENTLY PLAYED", "SEE ALL", recent, "Play a song and it will appear here.") { showRecents() }
         addHomeSection(left, "FAVOURITES", "SEE ALL", favourites, "Save songs with ☆ to build your favourites.") { showFavourites() }
-        addHomeSection(right, "RANDOM FROM YOUR LIBRARY", "SHOW SONGS", randomPicks, "Discover a fresh shuffled selection from your scanned music library.") { showRandomDropdown(randomPicks) }
+        addHomeSection(right, "RANDOM FROM YOUR LIBRARY", "SHOW SONGS", randomPicks, "Discover a fresh shuffled selection from your scanned music library.") { }
         if (latest.isNotEmpty()) addHomeSection(right, "YOUR LIBRARY", "SEE ALL SONGS", latest, "Your scanned tracks will appear here.") { showQueue() }
         columns.addView(left, LinearLayout.LayoutParams(0, -2, 1f).apply { rightMargin = 18 })
         columns.addView(right, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = 18 })
@@ -350,7 +350,11 @@ class MainActivity : AppCompatActivity() {
         }
         val heading = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         heading.addView(label(title, 13, WHITE, true), LinearLayout.LayoutParams(0, 42, 1f))
-        heading.addView(button(action, false, onClick), LinearLayout.LayoutParams(-2, 34))
+        val actionButton = button(action, false) {
+            if (title == "RANDOM FROM YOUR LIBRARY") showRandomDropdown(items, actionButton)
+            else onClick()
+        }
+        heading.addView(actionButton, LinearLayout.LayoutParams(-2, 34))
         card.addView(heading)
         if (items.isEmpty()) {
             card.addView(label(emptyText, 12, MUTED), LinearLayout.LayoutParams(-1, 58))
@@ -706,12 +710,12 @@ class MainActivity : AppCompatActivity() {
         addNowPlaying()
     }
 
-    private fun showRandomDropdown(items: List<Track>) {
+    private fun showRandomDropdown(items: List<Track>, anchor: View) {
         if (items.isEmpty()) {
             toast("No scanned tracks yet. Scan your library first.")
             return
         }
-        val popup = android.widget.PopupMenu(this, navButtons["HOME"] ?: content)
+        val popup = android.widget.PopupMenu(this, anchor)
         items.forEachIndexed { index, track ->
             popup.menu.add(0, index, index, track.title + if (track.artist.isNotBlank()) "  ·  " + track.artist else "")
         }
