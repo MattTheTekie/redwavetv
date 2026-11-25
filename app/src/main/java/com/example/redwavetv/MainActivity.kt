@@ -106,6 +106,8 @@ class MainActivity : AppCompatActivity() {
     private var playerLyricLine: TextView? = null
     private var playerLyricViews: List<TextView> = emptyList()
     private var recordAnimator: ObjectAnimator? = null
+    private var vinylView: VinylRecordView? = null
+    private var lyricsRequestGeneration = 0
     private val searchExecutor = Executors.newSingleThreadExecutor()
     private val searchHandler = Handler(Looper.getMainLooper())
     private var searchGeneration = 0
@@ -123,7 +125,10 @@ class MainActivity : AppCompatActivity() {
                 updatePlaybackButtons()
                 if (playbackState == com.google.android.exoplayer2.Player.STATE_ENDED && repeatMode != 1) playNext()
             }
-            override fun onIsPlayingChanged(isPlaying: Boolean) { updatePlaybackButtons() }
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                updatePlaybackButtons()
+                vinylView?.setSpinning(isPlaying)
+            }
             override fun onPlayerError(error: com.google.android.exoplayer2.PlaybackException) {
                 val trackName = playingTrack?.title ?: "Track"
                 android.util.Log.e("RedWavePlayer", "Playback failed for $trackName: ${error.errorCodeName}", error)
@@ -205,15 +210,11 @@ class MainActivity : AppCompatActivity() {
             Triple("⌂  HOME", "HOME") { showHome() },
             Triple("♫  LIBRARY", "QUEUE") { showQueue() },
             Triple("⌕  SEARCH", "SEARCH") { showSearch() },
-            Triple("FOLDERS", "FOLDERS") { showFolders() },
+            Triple("📁  FOLDERS", "FOLDERS") { showFolders() },
             Triple("⚙  SETTINGS", "SETTINGS") { showSettings() }
         )
         tabs.forEach { tab ->
             val nav = button(tab.first, currentScreen == tab.second) { tab.third() }
-            if (tab.second == "FOLDERS") {
-                nav.setCompoundDrawablesWithIntrinsicBounds(FolderGlyph(), null, null, null)
-                nav.compoundDrawablePadding = 5
-            }
             navButtons[tab.second] = nav
             nav.setOnFocusChangeListener { view, focused ->
                 val selected = if (tab.second == "QUEUE") currentScreen == "QUEUE" || currentScreen == "ALBUMS" else currentScreen == tab.second
@@ -1170,8 +1171,9 @@ class MainActivity : AppCompatActivity() {
         }, LinearLayout.LayoutParams(150, 46).apply { leftMargin = 10 })
         content.addView(modes, LinearLayout.LayoutParams(-1, 52))
         content.addView(label("NOW PLAYING", 12, RED, true), LinearLayout.LayoutParams(-1, 34))
-        val art = VinylRecordView(this, track?.artworkPath)
-        art.contentDescription = "Rotating vinyl record"
+        vinylView = VinylRecordView(this, track?.artworkPath).also { it.setSpinning(player.isPlaying) }
+        val art = vinylView!!
+        art.contentDescription = "Vinyl record; rotates only during playback"
         val density = resources.displayMetrics.density
         val availableWidthDp = (resources.displayMetrics.widthPixels / density).toInt() - 72
         val availableHeightDp = (resources.displayMetrics.heightPixels / density).toInt() - 150
@@ -1314,6 +1316,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadLyrics(track: Track, force: Boolean) {
         if (!force && (currentLyrics.isNotEmpty() || lyricsLoadingPath == track.path)) return
+        val requestGeneration = ++lyricsRequestGeneration
         lyricsLoadingPath = track.path
         currentLyrics = emptyList()
         lyricsStatus = "Searching online lyrics…"
@@ -1323,7 +1326,8 @@ class MainActivity : AppCompatActivity() {
             var message = ""
             try {
                 val encodedTitle = java.net.URLEncoder.encode(track.title.trim(), "UTF-8")
-                val encodedArtist = java.net.URLEncoder.encode(track.artist.trim(), "UTF-8")
+                val usefulArtist = track.artist.trim().takeUnless { it.isBlank() || it.equals("Unknown Artist", true) }.orEmpty()
+                val encodedArtist = java.net.URLEncoder.encode(usefulArtist, "UTF-8")
                 val encodedAlbum = java.net.URLEncoder.encode(track.album.trim(), "UTF-8")
                 val durationSeconds = if (playingTrack?.path == track.path && player.duration > 0) (player.duration / 1000L).toInt() else 0
 
@@ -1358,7 +1362,8 @@ class MainActivity : AppCompatActivity() {
                 // If strict signature matching misses (common with album tags/remasters),
                 // search candidates and choose the closest title/artist/album match.
                 if (parsed.isEmpty()) {
-                    val query = "https://lrclib.net/api/search?track_name=$encodedTitle&artist_name=$encodedArtist" +
+                    val query = "https://lrclib.net/api/search?track_name=$encodedTitle" +
+                        if (usefulArtist.isNotBlank()) "&artist_name=$encodedArtist" else "" +
                         if (track.album.isNotBlank()) "&album_name=$encodedAlbum" else ""
                     val connection = java.net.URL(query).openConnection() as java.net.HttpURLConnection
                     connection.connectTimeout = 10000
@@ -1408,7 +1413,7 @@ class MainActivity : AppCompatActivity() {
             }
             runOnUiThread {
                 // Do not let a slow response for the previous song replace the current song's lyrics.
-                if (playingTrack?.path == track.path || (playingTrack == null && currentScreen == "LYRICS")) {
+                if (requestGeneration == lyricsRequestGeneration && (playingTrack?.path == track.path || (playingTrack == null && currentScreen == "LYRICS"))) {
                     currentLyrics = parsed
                     lyricsStatus = if (parsed.isEmpty()) message.ifBlank { "Lyrics not found" } else message
                     if (currentScreen == "LYRICS") showLyrics() else if (currentScreen == "PLAYER") showPlayer()
@@ -1766,15 +1771,25 @@ class MainActivity : AppCompatActivity() {
             } catch (_: Exception) { null }
         }
 
+        private var spinning = false
+
+        fun setSpinning(shouldSpin: Boolean) {
+            if (spinning == shouldSpin) return
+            spinning = shouldSpin
+            removeCallbacks(spinFrame)
+            if (spinning && isAttachedToWindow) postOnAnimation(spinFrame)
+            invalidate()
+        }
+
         override fun onAttachedToWindow() {
             super.onAttachedToWindow()
             removeCallbacks(spinFrame)
-            postOnAnimation(spinFrame)
+            if (spinning) postOnAnimation(spinFrame)
         }
 
         private val spinFrame = object : Runnable {
             override fun run() {
-                if (!isAttachedToWindow) return
+                if (!isAttachedToWindow || !spinning) return
                 rotationDegrees = (rotationDegrees + 0.75f) % 360f
                 invalidate()
                 postDelayed(this, 16L)
