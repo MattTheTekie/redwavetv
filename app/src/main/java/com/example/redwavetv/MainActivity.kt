@@ -399,7 +399,7 @@ class MainActivity : AppCompatActivity() {
         content.addView(label(safeTrackCount().toString() + " tracks indexed • showing first " + tracks.size, 13, MUTED), LinearLayout.LayoutParams(-1, 34))
         val page = safeLoadTracks(limit = 100)
         if (page.isEmpty()) showEmpty()
-        page.forEach { addTrackRow(it) }
+        page.forEach { addTrackRow(it, page) }
         if (safeTrackCount() > page.size) content.addView(button("LOAD NEXT 100", false) { showQueuePage(100) }, LinearLayout.LayoutParams(220, 48))
         addNowPlaying()
     }
@@ -652,7 +652,9 @@ class MainActivity : AppCompatActivity() {
         currentScreen = "LYRICS"
         bottomPlayer.visibility = View.GONE
         content.removeAllViews()
+        content.setPadding(12, 4, 12, 6)
         val track = playingTrack ?: tracks.getOrNull(currentTrack)
+        content.addView(button("←  BACK TO PLAYER", false) { showPlayer() }, LinearLayout.LayoutParams(220, 42))
         content.addView(label("LYRICS", 12, RED, true), LinearLayout.LayoutParams(-1, 34))
         content.addView(label(track?.title ?: "No song selected", 26, WHITE, true), LinearLayout.LayoutParams(-1, 46))
         content.addView(label(track?.artist ?: track?.folder?.trimEnd('/')?.substringAfterLast('/') ?: "Play a track to find its lyrics", 13, MUTED), LinearLayout.LayoutParams(-1, 34))
@@ -663,28 +665,36 @@ class MainActivity : AppCompatActivity() {
             content.addView(empty, LinearLayout.LayoutParams(-1, 140).apply { topMargin = 18 })
             return
         }
+        val lyricScroll = ScrollView(this).apply { isFillViewport = true; isFocusable = false }
+        val lyricColumn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; setPadding(18, 12, 18, 28) }
         if (currentLyrics.isEmpty()) {
-            content.addView(label(lyricsStatus, 15, MUTED), LinearLayout.LayoutParams(-1, 58))
-            content.addView(button("RELOAD LYRICS", false) { loadLyrics(track, true) }, LinearLayout.LayoutParams(-1, 52))
+            lyricColumn.addView(label(lyricsStatus, 15, MUTED), LinearLayout.LayoutParams(-1, 58))
+            lyricColumn.addView(button("RELOAD LYRICS", false) { loadLyrics(track, true) }, LinearLayout.LayoutParams(-1, 52))
         } else {
             currentLyrics.forEach { line ->
-                val row = label(line.text, 19, if (line.timeMs <= player.currentPosition) WHITE else MUTED, true)
+                val row = label(line.text, 20, MUTED, true)
                 row.gravity = Gravity.CENTER
                 row.setPadding(12, 12, 12, 12)
-                content.addView(row, LinearLayout.LayoutParams(-1, -2))
+                lyricColumn.addView(row, LinearLayout.LayoutParams(-1, -2))
             }
-            content.addView(label("Timed highlighting follows playback when timestamps are present.", 11, MUTED), LinearLayout.LayoutParams(-1, 38))
         }
+        lyricScroll.addView(lyricColumn)
+        content.addView(lyricScroll, LinearLayout.LayoutParams(-1, 0, 1f))
         lyricsHandler.removeCallbacksAndMessages(null)
         val updater = object : Runnable {
             override fun run() {
                 if (currentScreen != "LYRICS" || currentLyrics.isEmpty()) return
                 val active = currentLyrics.indexOfLast { it.timeMs <= player.currentPosition }
-                for (i in 0 until content.childCount) {
-                    val view = content.getChildAt(i)
-                    if (view is TextView && i >= 3 && i < 3 + currentLyrics.size) {
-                        view.setTextColor(if (i - 3 == active) RED else MUTED)
-                    }
+                for (i in 0 until lyricColumn.childCount) {
+                    val view = lyricColumn.getChildAt(i)
+                    if (view is TextView) view.setTextColor(if (i == active) RED else MUTED)
+                }
+                if (active >= 0 && active < lyricColumn.childCount) {
+                    val activeView = lyricColumn.getChildAt(active)
+                    val rect = android.graphics.Rect()
+                    activeView.getDrawingRect(rect)
+                    lyricScroll.offsetDescendantRectToMyCoords(activeView, rect)
+                    lyricScroll.smoothScrollTo(0, (rect.top - lyricScroll.height / 3).coerceAtLeast(0))
                 }
                 lyricsHandler.postDelayed(this, 500)
             }
