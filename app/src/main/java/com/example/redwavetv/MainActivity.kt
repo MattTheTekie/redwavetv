@@ -1000,31 +1000,48 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun playPrevious() {
-        if (playbackQueue.isEmpty()) return
-        val next = if (shuffleEnabled) (playbackQueue.indices.filter { it != queuePosition }.randomOrNull() ?: queuePosition) else (queuePosition - 1).coerceAtLeast(0)
-        queuePosition = next
-        playTrack(playbackQueue[next], playbackQueue)
+        if (playbackQueue.isEmpty() || queuePosition <= 0) return
+        queuePosition--
+        playTrack(playbackQueue[queuePosition], playbackQueue, queueIsFolder)
     }
 
     private fun playNext() {
-        if (playbackQueue.isEmpty()) return
+        if (playbackQueue.isEmpty()) {
+            val first = try { libraryStore.loadRandomTracks(1).firstOrNull() } catch (_: Exception) { null } ?: return
+            playbackQueue = listOf(first)
+            queuePosition = 0
+            queueIsFolder = false
+            playTrack(first, playbackQueue)
+            return
+        }
         val next = when {
             shuffleEnabled && playbackQueue.size > 1 -> playbackQueue.indices.filter { it != queuePosition }.randomOrNull() ?: queuePosition
             queuePosition + 1 < playbackQueue.size -> queuePosition + 1
             repeatMode == 2 -> 0
-            else -> return
+            queueIsFolder -> return
+            else -> {
+                val random = try { libraryStore.loadRandomTracks(300, playingTrack?.path ?: "") } catch (_: Exception) { emptyList() }
+                if (random.isEmpty()) return
+                playbackQueue = random
+                queuePosition = 0
+                queueIsFolder = false
+                0
+            }
         }
         queuePosition = next
-        playTrack(playbackQueue[next], playbackQueue)
+        playTrack(playbackQueue[next], playbackQueue, queueIsFolder)
     }
 
-    private fun playTrack(track: Track, queue: List<Track>? = null) {
+    private fun playTrack(track: Track, queue: List<Track>? = null, folderQueue: Boolean = false) {
         try {
             val ctx = smbContext ?: throw IllegalStateException("Connect to your SMB share first")
-            if (queue != null) playbackQueue = queue
-            else if (playbackQueue.isEmpty() || playbackQueue.none { it.path == track.path }) {
-                val sameFolder = tracks.filter { it.folder == track.folder }
-                playbackQueue = if (sameFolder.isNotEmpty()) sameFolder else tracks
+            if (queue != null) {
+                playbackQueue = queue
+                queueIsFolder = folderQueue
+            } else {
+                val random = try { libraryStore.loadRandomTracks(300, track.path) } catch (_: Exception) { emptyList() }
+                playbackQueue = listOf(track) + random
+                queueIsFolder = false
             }
             queuePosition = playbackQueue.indexOfFirst { it.path == track.path }
             if (queuePosition < 0) {
