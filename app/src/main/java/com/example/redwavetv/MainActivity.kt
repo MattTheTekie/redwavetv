@@ -56,6 +56,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
     private lateinit var player: ExoPlayer
     private val tracks = mutableListOf<Track>()
+    private val navButtons = linkedMapOf<String, TextView>()
     private var smbContext: CIFSContext? = null
     private var currentShare = ""
     private var currentTrack = -1
@@ -107,11 +108,12 @@ class MainActivity : AppCompatActivity() {
             Triple("♫  LIBRARY", "QUEUE") { showQueue() },
             Triple("⌕  SEARCH", "SEARCH") { showSearch() },
             Triple("＋  CONNECT", "SMB") { showSmbDialog() },
-            Triple("•••  MORE", "MORE") { showMoreMenu() }
+            Triple("⚙  SETTINGS", "SETTINGS") { showSettings() }
         )
         tabs.forEach { tab ->
-            header.addView(button(tab.first, currentScreen == tab.second) { tab.third() },
-                LinearLayout.LayoutParams(0, 48, 1f).apply { leftMargin = 4; rightMargin = 4 })
+            val nav = button(tab.first, currentScreen == tab.second) { tab.third() }
+            navButtons[tab.second] = nav
+            header.addView(nav, LinearLayout.LayoutParams(0, 48, 1f).apply { leftMargin = 4; rightMargin = 4 })
         }
         root.addView(header, LinearLayout.LayoutParams(-1, 72))
         val top = LinearLayout(this).apply {
@@ -136,22 +138,37 @@ class MainActivity : AppCompatActivity() {
         addNowPlaying()
     }
 
-    private fun showMoreMenu() {
-        currentScreen = "MORE"
-        AlertDialog.Builder(this)
-            .setTitle("RedWave")
-            .setItems(arrayOf("Recently Played", "Favourites", "Albums", "Folders", "Now Playing", "Lyrics")) { _, which ->
-                when (which) {
-                    0 -> showRecents()
-                    1 -> showFavourites()
-                    2 -> showAlbums()
-                    3 -> showFolders()
-                    4 -> showPlayer()
-                    5 -> showLyrics()
-                }
-            }.show()
+    private fun showSettings() {
+        currentScreen = "SETTINGS"
+        content.removeAllViews()
+        updateNavigation()
+        content.addView(label("Settings", 30, WHITE, true), LinearLayout.LayoutParams(-1, 52))
+        content.addView(label("Manage your network library and playback.", 14, MUTED), LinearLayout.LayoutParams(-1, 34))
+        val connection = panel()
+        connection.addView(label("MUSIC SERVER", 12, RED, true))
+        connection.addView(label(if (currentShare.isBlank()) "No SMB share configured" else currentShare, 14, WHITE))
+        connection.addView(button(if (smbContext == null) "CONNECT TO MUSIC" else "EDIT CONNECTION", true) { showSmbDialog() }, LinearLayout.LayoutParams(-1, 48))
+        content.addView(connection, LinearLayout.LayoutParams(-1, -2))
+        val scan = panel()
+        scan.addView(label("LIBRARY SCAN", 12, RED, true))
+        scan.addView(label(libraryStore.scanSummary() ?: "No scan has been run yet", 14, WHITE))
+        scan.addView(button(if (isScanning) "SCAN IN PROGRESS" else "SCAN / RESCAN LIBRARY", false) { if (!isScanning) scanShare() }, LinearLayout.LayoutParams(-1, 48))
+        content.addView(scan, LinearLayout.LayoutParams(-1, -2))
+        content.addView(button("BROWSE FOLDERS", false) { showFolders() }, LinearLayout.LayoutParams(-1, 48))
+        addNowPlaying()
+        focusContent()
     }
 
+    private fun focusContent() {
+        content.post { content.focusables(View.FOCUS_FORWARD).firstOrNull { it.isShown && it.isFocusable }?.requestFocus() }
+    }
+
+    private fun updateNavigation() {
+        navButtons.forEach { (screen, view) ->
+            val selected = if (screen == "QUEUE") currentScreen == "QUEUE" || currentScreen == "ALBUMS" || currentScreen == "FOLDERS" else currentScreen == screen
+            view.background = rounded(if (selected || view.hasFocus()) RED else SURFACE, 10)
+        }
+    }
     private fun addNav(parent: LinearLayout, title: String, id: String, action: () -> Unit) {
         parent.addView(button(title, id == currentScreen, action), LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 7 })
     }
