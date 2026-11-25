@@ -309,6 +309,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showAlbums() {
         currentScreen = "ALBUMS"
+        updateNavigation()
         content.removeAllViews()
         content.addView(label("Albums & folders", 30, WHITE, true), LinearLayout.LayoutParams(-1, 48))
         content.addView(label("Your network music, arranged as visual collections.", 13, MUTED), LinearLayout.LayoutParams(-1, 32))
@@ -318,6 +319,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showFolders() {
+        currentScreen = "FOLDERS"
+        updateNavigation()
         if (smbContext != null && currentShare.isNotBlank()) { showRemoteFolder(currentShare); return }
         currentScreen = "FOLDERS"
         content.removeAllViews()
@@ -394,6 +397,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showQueue() {
         currentScreen = "QUEUE"
+        updateNavigation()
         content.removeAllViews()
         content.addView(label("All tracks", 29, WHITE, true), LinearLayout.LayoutParams(-1, 58))
         content.addView(label(safeTrackCount().toString() + " tracks indexed • showing first " + tracks.size, 13, MUTED), LinearLayout.LayoutParams(-1, 34))
@@ -419,6 +423,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showTrackList(title: String, songs: List<Track>) {
+        currentScreen = "QUEUE"
+        updateNavigation()
         content.removeAllViews()
         content.addView(label(title, 27, WHITE, true), LinearLayout.LayoutParams(-1, 58))
         content.addView(label(songs.size.toString() + " tracks", 13, MUTED), LinearLayout.LayoutParams(-1, 34))
@@ -581,6 +587,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showPlayer() {
         currentScreen = "PLAYER"
+        updateNavigation()
         bottomPlayer.visibility = View.GONE
         content.removeAllViews()
         val track = playingTrack ?: tracks.getOrNull(currentTrack)
@@ -650,6 +657,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showLyrics() {
         currentScreen = "LYRICS"
+        updateNavigation()
         bottomPlayer.visibility = View.GONE
         content.removeAllViews()
         content.setPadding(12, 4, 12, 6)
