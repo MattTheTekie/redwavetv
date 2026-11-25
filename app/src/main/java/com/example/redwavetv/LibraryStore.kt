@@ -198,9 +198,16 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         // Match the identity rule already used by search: same title/artist/album in
         // the same folder is one library entry, while identical songs in other folders
         // remain separate.
-        return queryTrackRows(
-            "SELECT title,path,folder,artist,album,artwork FROM tracks WHERE path IN (SELECT MIN(path) FROM tracks GROUP BY lower(trim(title)), lower(trim(artist)), lower(trim(album)), lower(rtrim(folder, '/'))) ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?",
-            arrayOf(safeLimit.toString(), safeOffset.toString()), safeLimit
+        // Keep this page query index-friendly. Grouping half a million rows by
+        // several text expressions on every tab open can freeze low-memory TV boxes.
+        // De-duplicate the fetched page in memory; scanner path identity prevents
+        // repeated insertion of the same SMB object.
+        val rows = queryTrackRows(
+            "SELECT title,path,folder,artist,album,artwork FROM tracks ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?",
+            arrayOf((safeLimit * 3).coerceAtMost(15000).toString(), safeOffset.toString()), (safeLimit * 3).coerceAtMost(15000)
         )
+        return rows.distinctBy {
+            listOf(it.title.trim().lowercase(), it.artist.trim().lowercase(), it.album.trim().lowercase(), it.folder.trimEnd('/').lowercase())
+        }.take(safeLimit)
     }
 }
