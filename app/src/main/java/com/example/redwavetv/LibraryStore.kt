@@ -94,6 +94,24 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         }
         return result
     }
+    @Synchronized fun saveFavorite(track: Track, favorite: Boolean) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val trackValues = ContentValues().apply {
+                put("path", track.path); put("title", track.title); put("folder", track.folder)
+                put("artist", track.artist); put("album", track.album); put("artwork", track.artworkPath)
+            }
+            db.insertWithOnConflict("tracks", null, trackValues, SQLiteDatabase.CONFLICT_REPLACE)
+            if (favorite) {
+                val favoriteValues = ContentValues().apply { put("path", track.path) }
+                db.insertWithOnConflict("favorites", null, favoriteValues, SQLiteDatabase.CONFLICT_REPLACE)
+            } else {
+                db.delete("favorites", "path=?", arrayOf(track.path))
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+    }
     @Synchronized fun setFavorite(path: String, favorite: Boolean) {
         if (favorite) {
             val values = ContentValues().apply { put("path", path) }
