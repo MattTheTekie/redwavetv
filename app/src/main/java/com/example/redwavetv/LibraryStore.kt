@@ -137,11 +137,11 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         writableDatabase.insertWithOnConflict("play_history", null, values, SQLiteDatabase.CONFLICT_REPLACE)
     }
     fun searchTracks(query: String, limit: Int = 100): List<Track> {
-        val q = query.trim().replace("%", "\\%").replace("_", "\\_") + "%"
+        val q = query.trim() + "%"
         // Prefix matching uses NOCASE indexes; contains-wildcards forced a full scan
         // of the entire library for every character typed.
         return queryTrackRows(
-            "SELECT title,path,folder,artist,album,artwork FROM tracks WHERE title LIKE ? ESCAPE '\\\\' OR artist LIKE ? ESCAPE '\\\\' OR album LIKE ? ESCAPE '\\\\' OR folder LIKE ? ESCAPE '\\\\' GROUP BY lower(title),lower(artist),lower(album),lower(folder) ORDER BY title COLLATE NOCASE LIMIT ?",
+            "SELECT title,path,folder,artist,album,artwork FROM tracks WHERE title LIKE ? OR artist LIKE ? OR album LIKE ? OR folder LIKE ? GROUP BY lower(title),lower(artist),lower(album),lower(folder) ORDER BY title COLLATE NOCASE LIMIT ?",
             arrayOf(q,q,q,q,limit.toString()), limit
         )
     }
