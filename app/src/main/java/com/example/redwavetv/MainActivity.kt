@@ -1,6 +1,11 @@
 package com.example.redwavetv
 
 import android.graphics.Typeface
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
+import android.view.animation.LinearInterpolator
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import java.io.File
@@ -46,6 +51,8 @@ private const val RED = 0xFFFF4057.toInt()
 private const val WHITE = 0xFFF5F6FA.toInt()
 private const val MUTED = 0xFF9BA3B4.toInt()
 private const val GREEN = 0xFF55D6A0.toInt()
+private const val ORANGE = 0xFFFF9F1C.toInt()
+private const val ORANGE_HI = 0xFFFFB347.toInt()
 
 data class Track(val title: String, val path: String, val folder: String, val artist: String = "Unknown Artist", val album: String = "", val artworkPath: String = "")
 data class LyricLine(val timeMs: Long, val text: String)
@@ -62,6 +69,7 @@ class MainActivity : AppCompatActivity() {
     private var currentTrack = -1
     private var playbackQueue: List<Track> = emptyList()
     private var queuePosition = -1
+    private var queueIsFolder = false
     private var shuffleEnabled = false
     private var repeatMode = 0
     private var playingTrack: Track? = null
@@ -107,14 +115,14 @@ class MainActivity : AppCompatActivity() {
             Triple("⌂  HOME", "HOME") { showHome() },
             Triple("♫  LIBRARY", "QUEUE") { showQueue() },
             Triple("⌕  SEARCH", "SEARCH") { showSearch() },
-            Triple("＋  CONNECT", "SMB") { showSmbDialog() },
+            Triple("▤  FOLDERS", "FOLDERS") { showFolders() },
             Triple("⚙  SETTINGS", "SETTINGS") { showSettings() }
         )
         tabs.forEach { tab ->
             val nav = button(tab.first, currentScreen == tab.second) { tab.third() }
             navButtons[tab.second] = nav
             nav.setOnFocusChangeListener { view, focused ->
-                val selected = if (tab.second == "QUEUE") currentScreen == "QUEUE" || currentScreen == "ALBUMS" || currentScreen == "FOLDERS" else currentScreen == tab.second
+                val selected = if (tab.second == "QUEUE") currentScreen == "QUEUE" || currentScreen == "ALBUMS" else currentScreen == tab.second
                 view.background = rounded(if (focused || selected) RED else SURFACE, 10)
             }
             header.addView(nav, LinearLayout.LayoutParams(0, 48, 1f).apply { leftMargin = 4; rightMargin = 4 })
@@ -151,13 +159,16 @@ class MainActivity : AppCompatActivity() {
         val connection = panel()
         connection.addView(label("MUSIC SERVER", 12, RED, true))
         connection.addView(label(if (currentShare.isBlank()) "No SMB share configured" else currentShare, 14, WHITE))
-        connection.addView(button(if (smbContext == null) "CONNECT TO MUSIC" else "EDIT CONNECTION", true) { showSmbDialog() }, LinearLayout.LayoutParams(-1, 48))
-        content.addView(connection, LinearLayout.LayoutParams(-1, -2))
+        connection.addView(button(if (smbContext == null) "CONNECT TO MUSIC" else "EDIT CONNECTION", true) { showSmbDialog() }, LinearLayout.LayoutParams(-1, 44))
+        content.addView(connection, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 10 })
         val scan = panel()
-        scan.addView(label("LIBRARY SCAN", 12, RED, true))
+        scan.addView(label("LIBRARY SCAN", 12, ORANGE, true))
         scan.addView(label(libraryStore.scanSummary() ?: "No scan has been run yet", 14, WHITE))
-        scan.addView(button(if (isScanning) "SCAN IN PROGRESS" else "SCAN / RESCAN LIBRARY", false) { if (!isScanning) scanShare() }, LinearLayout.LayoutParams(-1, 48))
-        content.addView(scan, LinearLayout.LayoutParams(-1, -2))
+        val scanButton = button(if (isScanning) "SCAN IN PROGRESS" else "SCAN / RESCAN LIBRARY", false) { if (!isScanning) scanShare() }
+        scanButton.background = rounded(ORANGE, 10)
+        scanButton.setOnFocusChangeListener { view, focused -> view.background = rounded(if (focused) ORANGE_HI else ORANGE, 10) }
+        scan.addView(scanButton, LinearLayout.LayoutParams(-1, 42).apply { topMargin = 8 })
+        content.addView(scan, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 10 })
         content.addView(button("BROWSE FOLDERS", false) { showFolders() }, LinearLayout.LayoutParams(-1, 48))
         addNowPlaying()
         focusContent()
@@ -181,7 +192,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateNavigation() {
         navButtons.forEach { (screen, view) ->
-            val selected = if (screen == "QUEUE") currentScreen == "QUEUE" || currentScreen == "ALBUMS" || currentScreen == "FOLDERS" else currentScreen == screen
+            val selected = if (screen == "QUEUE") currentScreen == "QUEUE" || currentScreen == "ALBUMS" else currentScreen == screen
             view.background = rounded(if (selected || view.hasFocus()) RED else SURFACE, 10)
         }
     }
@@ -223,13 +234,16 @@ class MainActivity : AppCompatActivity() {
         val heroCopy = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         heroCopy.addView(label("ALL YOUR MUSIC.\nONE BEAUTIFUL LIBRARY.", 25, WHITE, true), LinearLayout.LayoutParams(-1, 78))
         heroCopy.addView(label(safeTrackCount().toString() + " songs indexed  ·  browse folders anytime", 13, 0xFFE2D9E0.toInt()))
-        heroCopy.addView(button(if (smbContext == null && currentShare.isNotBlank()) "CONNECT SAVED SHARE" else if (smbContext == null) "ADD MUSIC SHARE" else "SCAN LIBRARY", true) {
-            if (smbContext != null) scanShare() else if (currentShare.isNotBlank()) connectSavedShare() else showSmbDialog()
-        }, LinearLayout.LayoutParams(210, 44).apply { topMargin = 12 })
+        heroCopy.addView(button(if (smbContext == null) "OPEN SETTINGS" else "OPEN LIBRARY", true) {
+            if (smbContext != null) showQueue() else showSettings()
+        }, LinearLayout.LayoutParams(190, 40).apply { topMargin = 12 })
         hero.addView(heroCopy, LinearLayout.LayoutParams(0, -2, 1f))
-        hero.addView(label("♫", 86, 0xFFFFA4B5.toInt(), true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(150, 130))
+        hero.addView(label("♫", 58, 0xFFFFA4B5.toInt(), true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(112, 112))
         content.addView(hero, LinearLayout.LayoutParams(-1, 172).apply { topMargin = 10; bottomMargin = 18 })
         if (isScanning) content.addView(label("Scanning network library…  " + tracks.size + " found", 13, GREEN, true), LinearLayout.LayoutParams(-1, 36))
+        val randomPicks = try { libraryStore.loadRandomTracks(12) } catch (_: Exception) { emptyList() }
+        sectionTitle("RANDOM FROM YOUR LIBRARY", "SEE ALL SONGS") { showQueue() }
+        if (randomPicks.isEmpty()) content.addView(label("Connect and scan your SMB library to get random picks here.", 13, MUTED), LinearLayout.LayoutParams(-1, 34)) else randomPicks.take(6).forEach { addTrackRow(it, randomPicks) }
         val recent = try { libraryStore.loadRecent(8) } catch (_: Exception) { emptyList() }
         val favourites = try { libraryStore.loadFavorites(8) } catch (_: Exception) { emptyList() }
         sectionTitle("RECENTLY PLAYED", "SEE ALL") { showRecents() }
@@ -787,9 +801,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun restoreSavedShare() {
         currentShare = securePrefs.getString("share", null) ?: return
-        scanStatus = "Saved share • not connected"
+        scanStatus = "Connecting to saved share…"
         updateStatus()
-        showHome()
+        connectSavedShare()
     }
 
     private fun connectSavedShare() {
@@ -798,7 +812,7 @@ class MainActivity : AppCompatActivity() {
             val username = securePrefs.getString("username", "") ?: ""
             val password = securePrefs.getString("password", "") ?: ""
             val domain = securePrefs.getString("domain", "") ?: ""
-            connectAndScan(username, password, domain, false)
+            connectAndScan(username, password, domain, safeTrackCount() == 0)
         } catch (_: Exception) {
             toast("Could not read saved SMB login. Please reconnect.")
             showSmbDialog()
@@ -806,7 +820,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showSmbDialog() {
-        currentScreen = "SMB"
+        currentScreen = "SETTINGS"
         updateNavigation()
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(20, 6, 20, 6) }
         val host = field("Server IP or hostname, e.g. 192.168.1.20")
