@@ -57,6 +57,13 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         readableDatabase.rawQuery("SELECT path FROM hidden_folders ORDER BY path COLLATE NOCASE", null).use { c -> while (c.moveToNext()) result.add(c.getString(0)) }
         return result
     }
+    fun isPathHidden(path: String): Boolean {
+        val candidate = path.trimEnd('/') + "/"
+        return readableDatabase.rawQuery(
+            "SELECT 1 FROM hidden_folders WHERE substr(?,1,length(path))=path COLLATE NOCASE LIMIT 1",
+            arrayOf(candidate)
+        ).use { it.moveToFirst() }
+    }
     private fun visibleFolderSql(column: String = "folder"): String =
         "NOT EXISTS (SELECT 1 FROM hidden_folders hf WHERE lower(substr($column,1,length(rtrim(hf.path,'/'))))=lower(rtrim(hf.path,'/')) AND (length($column)=length(rtrim(hf.path,'/')) OR substr($column,length(rtrim(hf.path,'/'))+1,1)='/'))"
 
@@ -164,7 +171,7 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         )
     }
     fun loadRecent(limit: Int = 100): List<Track> = queryTrackRows("SELECT t.title,t.path,t.folder,t.artist,t.album,t.artwork FROM tracks t INNER JOIN play_history h ON h.path=t.path WHERE ${visibleFolderSql("t.folder")} ORDER BY h.played_at DESC LIMIT ?", arrayOf(limit.toString()), limit)
-    fun loadTrack(path: String): Track? = queryTrackRows("SELECT title,path,folder,artist,album,artwork FROM tracks WHERE path=? LIMIT 1", arrayOf(path), 1).firstOrNull()
+    fun loadTrack(path: String): Track? = queryTrackRows("SELECT title,path,folder,artist,album,artwork FROM tracks WHERE path=? AND ${visibleFolderSql()} LIMIT 1", arrayOf(path), 1).firstOrNull()
     fun loadFavorites(limit: Int = 100): List<Track> = queryTrackRows("SELECT t.title,t.path,t.folder,t.artist,t.album,t.artwork FROM tracks t INNER JOIN favorites f ON f.path=t.path WHERE ${visibleFolderSql("t.folder")} ORDER BY t.title COLLATE NOCASE LIMIT ?", arrayOf(limit.toString()), limit)
     fun loadRandomTracks(limit: Int = 300, excludePath: String = ""): List<Track> {
         if (limit <= 0) return emptyList()
