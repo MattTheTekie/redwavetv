@@ -839,76 +839,73 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun performScan(base: String, ctx: CIFSContext) {
-        // Bounded-memory indexing: stream one directory at a time and persist queue/batches in SQLite. Do not extract tags during scan.
-        val resumed = libraryStore.startOrResumeScan(base)
-        val savedProgress = libraryStore.scanProgress()
-        var visited = if (resumed) savedProgress.first else 0L
-        var discovered = if (resumed) savedProgress.second else 0L
-        // Keep heap usage bounded: jcifs SmbFile.listFiles() materializes an entire
-        // directory into an array. children() enumerates SMB entries incrementally.
+        var visited = 0L
+        var discovered = 0L
         val batch = ArrayList<Track>(100)
-        // SQLite is the scan index; do not keep a separate in-memory preview list.
         try {
-            // Do not delete the previous index up front. If the network drops halfway
-            // through a large scan, the last known library remains usable.
+            // Guard database setup and resume reads too; these previously ran before try/catch.
+            val resumed = libraryStore.startOrResumeScan(base)
+            val savedProgress = libraryStore.scanProgress()
+            visited = if (resumed) savedProgress.first else 0L
+            discovered = if (resumed) savedProgress.second else 0L
+
             while (true) {
                 val nextDirectory = libraryStore.dequeueDirectory() ?: break
                 val (url, depth) = nextDirectory
-                if (depth > 40) { libraryStore.completeDirectory(url); continue }
+                if (depth > 40) continue
+                val directory = SmbFile(url, ctx)
+                val iterator = directory.children()
                 try {
-                    val directory = SmbFile(url, ctx)
-                    val iterator = directory.children()
-                    try {
-                        while (iterator.hasNext()) {
-                            val resource = iterator.next()
-                            visited++
-                            try {
-                                val file = resource as SmbFile
-                                if (file.isDirectory) {
-                                    if (depth < 40) libraryStore.enqueueDirectory(file.getURL().toString(), depth + 1)
-                                } else {
-                                    val name = file.getName().trimEnd('/')
-                                    val ext = name.substringAfterLast('.', "").lowercase()
-                                    if (ext in AUDIO_EXTENSIONS) {
-                                        val item = Track(name.substringBeforeLast('.'), file.getURL().toString(), file.getParent() ?: base)
-                                        batch.add(item); discovered++
-                                        if (batch.size >= 100) { libraryStore.upsertBatch(batch); batch.clear() }
-                                    }
+                    while (iterator.hasNext()) {
+                        val resource = iterator.next()
+                        visited++
+                        try {
+                            // jcifs-ng returns SmbResource entries. Do not force-cast them.
+                            val file = resource as? SmbFile ?: continue
+                            if (file.isDirectory) {
+                                if (depth < 40) libraryStore.enqueueDirectory(file.getURL().toString(), depth + 1)
+                            } else {
+                                val name = file.getName().trimEnd('/')
+                                val ext = name.substringAfterLast('.', "").lowercase()
+                                if (ext in AUDIO_EXTENSIONS) {
+                                    batch.add(Track(name.substringBeforeLast('.'), file.getURL().toString(), file.getParent() ?: base))
+                                    discovered++
+                                    if (batch.size >= 100) { libraryStore.upsertBatch(batch); batch.clear() }
                                 }
-                            } catch (_: Exception) { }
-                            if (visited % 2000L == 0L) {
-                                libraryStore.updateScanProgress(visited, discovered)
-                                val count = discovered
-                                runOnUiThread { if (::statusText.isInitialized) statusText.text = "SCANNING • $count TRACKS" }
                             }
+                        } catch (entryError: Exception) {
+                            android.util.Log.w("RedWaveScan", "Skipping unreadable SMB entry", entryError)
                         }
-                    } finally {
-                        try { iterator.close() } catch (_: Exception) { }
+                        if (visited % 250L == 0L) {
+                            libraryStore.updateScanProgress(visited, discovered)
+                            val count = discovered
+                            runOnUiThread { if (::statusText.isInitialized) statusText.text = "SCANNING • $count TRACKS" }
+                        }
                     }
-                } catch (directoryError: Exception) {
-                    // Return the claimed directory to the persistent queue so a later
-                    // retry can resume without losing this subtree.
-                    try { libraryStore.enqueueDirectory(url, depth) } catch (_: Exception) { }
-                    throw directoryError
+                } finally {
+                    try { iterator.close() } catch (_: Exception) { }
+                    try { directory.close() } catch (_: Exception) { }
                 }
-                libraryStore.completeDirectory(url)
             }
             if (batch.isNotEmpty()) libraryStore.upsertBatch(batch)
             libraryStore.finishScan("COMPLETE", visited, discovered)
-            tracks.clear(); tracks.addAll(safeLoadTracks(limit = 100))
-            currentTrack = -1; isScanning = false
+            tracks.clear()
+            tracks.addAll(safeLoadTracks(limit = 100))
+            currentTrack = -1
+            isScanning = false
             scanStatus = "Scan complete • $discovered tracks"
             runOnUiThread { updateStatus(); refreshScreen(); toast("Indexed $discovered audio files. Browse folders for the complete library.") }
         } catch (e: Exception) {
-            if (batch.isNotEmpty()) try { libraryStore.upsertBatch(batch) } catch (_: Exception) { }
-            try { libraryStore.finishScan("INTERRUPTED", visited, discovered) } catch (_: Exception) { }
-            tracks.clear(); tracks.addAll(safeLoadTracks(limit = 100))
-            isScanning = false; scanStatus = "Scan interrupted • $discovered saved"
-            android.util.Log.e("RedWaveScan", "SMB scan failed at $visited entries", e)
-            runOnUiThread { updateStatus(); refreshScreen(); toast("Scan error at $visited entries: " + (e.message ?: e.javaClass.simpleName)) }
+            if (batch.isNotEmpty()) try { libraryStore.upsertBatch(batch) } catch (saveError: Exception) { android.util.Log.e("RedWaveScan", "Could not save final scan batch", saveError) }
+            try { libraryStore.finishScan("INTERRUPTED", visited, discovered) } catch (stateError: Exception) { android.util.Log.e("RedWaveScan", "Could not persist interrupted scan state", stateError) }
+            tracks.clear()
+            tracks.addAll(safeLoadTracks(limit = 100))
+            isScanning = false
+            scanStatus = "Scan failed • $discovered saved"
+            android.util.Log.e("RedWaveScan", "SMB scan failed after $visited entries", e)
+            runOnUiThread { updateStatus(); refreshScreen(); toast("Scan failed after $visited entries: " + (e.message ?: e.javaClass.simpleName)) }
         }
     }
-
     private fun enrichMetadata(track: Track, ctx: CIFSContext): Track {
         val temp = File(cacheDir, "meta_" + track.path.hashCode() + ".tmp")
         val retriever = MediaMetadataRetriever()
