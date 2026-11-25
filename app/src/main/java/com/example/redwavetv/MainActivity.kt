@@ -104,15 +104,10 @@ class MainActivity : AppCompatActivity() {
         header.addView(brand, LinearLayout.LayoutParams(145, 54))
         val tabs = listOf(
             Triple("⌂  HOME", "HOME") { showHome() },
-            Triple("▣  ALBUMS", "ALBUMS") { showAlbums() },
-            Triple("◷  RECENTS", "RECENTS") { showRecents() },
-            Triple("★  FAVOURITES", "FAVOURITES") { showFavourites() },
-            Triple("♫  TRACKS", "QUEUE") { showQueue() },
+            Triple("♫  LIBRARY", "QUEUE") { showQueue() },
             Triple("⌕  SEARCH", "SEARCH") { showSearch() },
-            Triple("▤  FOLDERS", "FOLDERS") { showFolders() },
-            Triple("♪  LYRICS", "LYRICS") { showLyrics() },
-            Triple("▶  PLAY", "PLAYER") { showPlayer() },
-            Triple("＋  SMB", "SMB") { showSmbDialog() }
+            Triple("＋  CONNECT", "SMB") { showSmbDialog() },
+            Triple("•••  MORE", "MORE") { showMoreMenu() }
         )
         tabs.forEach { tab ->
             header.addView(button(tab.first, currentScreen == tab.second) { tab.third() },
@@ -139,6 +134,22 @@ class MainActivity : AppCompatActivity() {
         root.addView(bottomPlayer, LinearLayout.LayoutParams(-1, 66))
         setContentView(root)
         addNowPlaying()
+    }
+
+    private fun showMoreMenu() {
+        currentScreen = "MORE"
+        AlertDialog.Builder(this)
+            .setTitle("RedWave")
+            .setItems(arrayOf("Recently Played", "Favourites", "Albums", "Folders", "Now Playing", "Lyrics")) { _, which ->
+                when (which) {
+                    0 -> showRecents()
+                    1 -> showFavourites()
+                    2 -> showAlbums()
+                    3 -> showFolders()
+                    4 -> showPlayer()
+                    5 -> showLyrics()
+                }
+            }.show()
     }
 
     private fun addNav(parent: LinearLayout, title: String, id: String, action: () -> Unit) {
@@ -429,7 +440,12 @@ class MainActivity : AppCompatActivity() {
         row.addView(names, LinearLayout.LayoutParams(0, 54, 1f))
         val favorite = try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }
         row.addView(button(if (favorite) "★" else "☆", favorite) {
-            try { libraryStore.setFavorite(track.path, !libraryStore.isFavorite(track.path)) } catch (_: Exception) { }
+            try {
+                // Folder browsing can create a Track that has not been indexed yet.
+                // Persist its row before adding the favourite so the favourites JOIN can display it.
+                libraryStore.upsertBatch(listOf(track))
+                libraryStore.setFavorite(track.path, !libraryStore.isFavorite(track.path))
+            } catch (e: Exception) { toast("Could not save favourite: " + (e.message ?: "database error")) }
             if (currentScreen == "FAVOURITES") showFavourites() else if (currentScreen == "PLAYER") showPlayer() else refreshScreen()
         }, LinearLayout.LayoutParams(48, 48))
         row.addView(label("▶", 15, MUTED, true))
@@ -451,7 +467,11 @@ class MainActivity : AppCompatActivity() {
             if (matches.isEmpty()) results.addView(label("No matching tracks.", 14, MUTED)) else matches.forEach { track ->
                 val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
                 row.addView(button("▶  ${track.title}  ·  ${track.artist}", false) { playTrack(track) }, LinearLayout.LayoutParams(0, 54, 1f))
-                row.addView(button(if (try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }) "★" else "☆", false) { try { libraryStore.setFavorite(track.path, !libraryStore.isFavorite(track.path)) } catch (_: Exception) {}; runSearch(value) }, LinearLayout.LayoutParams(54, 48))
+                row.addView(button(if (try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }) "★" else "☆", false) {
+                    try { libraryStore.upsertBatch(listOf(track)); libraryStore.setFavorite(track.path, !libraryStore.isFavorite(track.path)) }
+                    catch (e: Exception) { toast("Could not save favourite: " + (e.message ?: "database error")) }
+                    runSearch(value)
+                }, LinearLayout.LayoutParams(54, 48))
                 results.addView(row)
             }
         }
@@ -855,8 +875,9 @@ class MainActivity : AppCompatActivity() {
                         try { iterator.close() } catch (_: Exception) { }
                     }
                 } catch (directoryError: Exception) {
-                    // Keep this directory queued. A transient SMB error must not silently
-                    // mark an unread directory complete; stop and resume it on the next scan.
+                    // Return the claimed directory to the persistent queue so a later
+                    // retry can resume without losing this subtree.
+                    try { libraryStore.enqueueDirectory(url, depth) } catch (_: Exception) { }
                     throw directoryError
                 }
                 libraryStore.completeDirectory(url)
@@ -932,7 +953,12 @@ class MainActivity : AppCompatActivity() {
             }
             currentTrack = tracks.indexOfFirst { it.path == track.path }
             playingTrack = track
-            try { libraryStore.recordPlay(track.path) } catch (_: Exception) { }
+            try {
+                // Tracks launched from the live SMB browser must also be indexed locally;
+                // otherwise loadRecent() cannot resolve their history row.
+                libraryStore.upsertBatch(listOf(track))
+                libraryStore.recordPlay(track.path)
+            } catch (_: Exception) { }
             currentLyrics = emptyList()
             lyricsStatus = "Choose a track to look for an .lrc file"
             val factory = DataSource.Factory { SmbStreamDataSource(ctx) }
