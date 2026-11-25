@@ -32,6 +32,7 @@ import com.google.android.exoplayer2.ExoPlayer
 import com.google.android.exoplayer2.DefaultRenderersFactory
 import com.google.android.exoplayer2.MediaItem
 import com.google.android.exoplayer2.source.ProgressiveMediaSource
+import com.google.android.exoplayer2.extractor.DefaultExtractorsFactory
 import com.google.android.exoplayer2.upstream.DataSource
 import com.google.android.exoplayer2.upstream.DataSpec
 import com.google.android.exoplayer2.upstream.TransferListener
@@ -1265,32 +1266,34 @@ class MainActivity : AppCompatActivity() {
         if (player.duration > 0) seek.progress = ((player.currentPosition.toDouble() / player.duration.toDouble()) * 1000).toInt().coerceIn(0, 1000)
         seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
-                val duration = player.duration
-                // TV remotes adjust SeekBar progress with DPAD keys, not touch gestures.
-                if (fromUser && duration > 0 && duration != C.TIME_UNSET) {
-                    player.seekTo((duration * progress / 1000).toLong().coerceIn(0L, duration))
-                }
+                // While dragging, move the thumb only. Commit once the user releases it.
             }
             override fun onStartTrackingTouch(bar: SeekBar?) {}
             override fun onStopTrackingTouch(bar: SeekBar?) {
                 val duration = player.duration
-                if (duration > 0 && duration != C.TIME_UNSET && bar != null) player.seekTo((duration * bar.progress / 1000).toLong())
+                if (duration > 0 && duration != C.TIME_UNSET && bar != null) {
+                    val target = (duration * bar.progress / 1000L).coerceIn(0L, duration)
+                    player.seekTo(target)
+                }
             }
         })
         seek.setOnKeyListener { _, keyCode, event ->
-            if (event.action == KeyEvent.ACTION_DOWN && (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)) {
+            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
                 val duration = player.duration
                 if (duration > 0 && duration != C.TIME_UNSET) {
-                    val delta = if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) 10_000L else -10_000L
-                    player.seekTo((player.currentPosition + delta).coerceIn(0L, duration))
-                    seek.progress = ((player.currentPosition.toDouble() / duration.toDouble()) * 1000).toInt().coerceIn(0, 1000)
-                }
-                true
+                    if (event.action == KeyEvent.ACTION_DOWN) {
+                        val delta = if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) 10_000L else -10_000L
+                        val target = (player.currentPosition + delta).coerceIn(0L, duration)
+                        player.seekTo(target)
+                        seek.progress = ((target.toDouble() / duration.toDouble()) * 1000).toInt().coerceIn(0, 1000)
+                    }
+                    // Consume both down and up so SeekBar's built-in stepper cannot
+                    // move the thumb without seeking the SMB stream.
+                    true
+                } else false
             } else false
         }
-        content.addView(seek, LinearLayout.LayoutParams(-1, 48))
-        progressHandler.post(progressUpdater)
-        content.addView(button(if (try { libraryStore.isFavorite(track?.path ?: "") } catch (_: Exception) { false }) "★  REMOVE FROM FAVOURITES" else "☆  ADD TO FAVOURITES", false) {
+        val favoriteButton = button(if (try { libraryStore.isFavorite(track?.path ?: "") } catch (_: Exception) { false }) "★  REMOVE FROM FAVOURITES" else "☆  ADD TO FAVOURITES", false) {
             if (track != null) {
                 val saved = try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }
                 try {
@@ -1301,18 +1304,35 @@ class MainActivity : AppCompatActivity() {
                     toast("Favourite save failed: " + (e.message ?: e.javaClass.simpleName))
                 }
             } else toast("Play a song before adding it to favourites")
-        }, LinearLayout.LayoutParams(-1, 46))
+        }.apply { id = View.generateViewId() }
+        seek.nextFocusDownId = favoriteButton.id
+        favoriteButton.nextFocusUpId = seek.id
+        content.addView(seek, LinearLayout.LayoutParams(-1, 48))
+        progressHandler.post(progressUpdater)
+        content.addView(favoriteButton, LinearLayout.LayoutParams(-1, 46))
         val controls = LinearLayout(this).apply { gravity = Gravity.CENTER; orientation = LinearLayout.HORIZONTAL }
-        controls.addView(button("PREVIOUS", false) { playPrevious() }, LinearLayout.LayoutParams(120, 54))
-        val playerToggle = button(if (player.playWhenReady) "Ⅱ  PAUSE" else "▶  PLAY", true) { togglePlayback() }.apply { playerPlayPause = this }
+        val previousButton = button("PREVIOUS", false) { playPrevious() }.apply { id = View.generateViewId() }
+        controls.addView(previousButton, LinearLayout.LayoutParams(120, 54))
+        val playerToggle = button(if (player.playWhenReady) "Ⅱ  PAUSE" else "▶  PLAY", true) { togglePlayback() }.apply { playerPlayPause = this; id = View.generateViewId() }
         controls.addView(playerToggle, LinearLayout.LayoutParams(150, 54).apply { leftMargin = 12; rightMargin = 12 })
-        controls.addView(button("NEXT", false) { playNext() }, LinearLayout.LayoutParams(120, 54))
+        val nextButton = button("NEXT", false) { playNext() }.apply { id = View.generateViewId() }
+        controls.addView(nextButton, LinearLayout.LayoutParams(120, 54))
+        favoriteButton.nextFocusDownId = previousButton.id
+        previousButton.nextFocusUpId = favoriteButton.id
+        previousButton.nextFocusRightId = playerToggle.id
+        playerToggle.nextFocusLeftId = previousButton.id
+        playerToggle.nextFocusRightId = nextButton.id
+        nextButton.nextFocusLeftId = playerToggle.id
         content.addView(controls, LinearLayout.LayoutParams(-1, 62))
-        content.addView(button("OPEN LYRICS", false) { showLyrics() }.apply {
+        val lyricsButton = button("OPEN LYRICS", false) { showLyrics() }.apply {
             textSize = 11f
             setPadding(6, 4, 6, 4)
             isSingleLine = true
-        }, LinearLayout.LayoutParams(164, 34).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = 2 })
+            id = View.generateViewId()
+        }
+        nextButton.nextFocusDownId = lyricsButton.id
+        lyricsButton.nextFocusUpId = nextButton.id
+        content.addView(lyricsButton, LinearLayout.LayoutParams(164, 34).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = 2 })
     }
 
     private fun updatePlayerLyricPreview() {
@@ -1749,7 +1769,9 @@ class MainActivity : AppCompatActivity() {
                 .setUri(track.path)
                 .setMimeType(audioMimeType(track.path))
                 .build()
-            val source = ProgressiveMediaSource.Factory(factory).createMediaSource(mediaItem)
+            // Enable constant-bitrate seeking for MP3 files that do not contain a Xing/VBRI seek table.
+            val extractors = DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true)
+            val source = ProgressiveMediaSource.Factory(factory, extractors).createMediaSource(mediaItem)
             player.setMediaSource(source)
             player.prepare()
             player.play()
@@ -1915,11 +1937,23 @@ class MainActivity : AppCompatActivity() {
         if (::statusText.isInitialized) statusText.text = message
     }
 
+    private fun seekBy(deltaMs: Long) {
+        val duration = player.duration
+        if (duration <= 0L || duration == C.TIME_UNSET) return
+        val target = (player.currentPosition + deltaMs).coerceIn(0L, duration)
+        player.seekTo(target)
+        progressSeekBar?.let { bar ->
+            bar.progress = ((target.toDouble() / duration.toDouble()) * 1000).toInt().coerceIn(0, 1000)
+        }
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         when (keyCode) {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { togglePlayback(); return true }
             KeyEvent.KEYCODE_MEDIA_PLAY -> { player.play(); updatePlaybackButtons(); return true }
             KeyEvent.KEYCODE_MEDIA_PAUSE -> { player.pause(); updatePlaybackButtons(); return true }
+            KeyEvent.KEYCODE_MEDIA_REWIND -> { seekBy(-10_000L); return true }
+            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { seekBy(10_000L); return true }
             KeyEvent.KEYCODE_DPAD_DOWN -> if (currentScreen == "LYRICS") { contentScroll.smoothScrollBy(0, (resources.displayMetrics.density * 72).toInt()); return true }
             KeyEvent.KEYCODE_DPAD_UP -> if (currentScreen == "LYRICS") { contentScroll.smoothScrollBy(0, -(resources.displayMetrics.density * 72).toInt()); return true }
             KeyEvent.KEYCODE_MEDIA_NEXT -> { playNext(); return true }
