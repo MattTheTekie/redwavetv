@@ -136,9 +136,21 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
     fun loadRecent(limit: Int = 100): List<Track> = queryTrackRows("SELECT t.title,t.path,t.folder,t.artist,t.album,t.artwork FROM tracks t INNER JOIN play_history h ON h.path=t.path ORDER BY h.played_at DESC LIMIT ?", arrayOf(limit.toString()), limit)
     fun loadFavorites(limit: Int = 100): List<Track> = queryTrackRows("SELECT t.title,t.path,t.folder,t.artist,t.album,t.artwork FROM tracks t INNER JOIN favorites f ON f.path=t.path ORDER BY t.title COLLATE NOCASE LIMIT ?", arrayOf(limit.toString()), limit)
     fun loadRandomTracks(limit: Int = 300, excludePath: String = ""): List<Track> {
-        val sql = if (excludePath.isBlank()) "SELECT title,path,folder,artist,album,artwork FROM tracks ORDER BY RANDOM() LIMIT ?" else "SELECT title,path,folder,artist,album,artwork FROM tracks WHERE path<>? ORDER BY RANDOM() LIMIT ?"
-        val args = if (excludePath.isBlank()) arrayOf(limit.toString()) else arrayOf(excludePath, limit.toString())
-        return queryTrackRows(sql, args, limit)
+        if (limit <= 0) return emptyList()
+        val maxRowId = readableDatabase.rawQuery("SELECT COALESCE(MAX(rowid),0) FROM tracks", null).use { c -> c.moveToFirst(); c.getLong(0) }
+        if (maxRowId <= 0L) return emptyList()
+        // Jump to a random rowid instead of ORDER BY RANDOM(), which sorts the entire
+        // 500k-track library every time Home opens or playback needs another batch.
+        val start = kotlin.random.Random.nextLong(1L, maxRowId + 1L)
+        val fields = "SELECT title,path,folder,artist,album,artwork FROM tracks WHERE "
+        val exclude = if (excludePath.isBlank()) "" else "path<>? AND "
+        val args1 = if (excludePath.isBlank()) arrayOf(start.toString(), limit.toString()) else arrayOf(excludePath, start.toString(), limit.toString())
+        val first = queryTrackRows(fields + exclude + "rowid>=? ORDER BY rowid LIMIT ?", args1, limit)
+        if (first.size >= limit) return first
+        val remaining = limit - first.size
+        val args2 = if (excludePath.isBlank()) arrayOf(start.toString(), remaining.toString()) else arrayOf(excludePath, start.toString(), remaining.toString())
+        val second = queryTrackRows(fields + exclude + "rowid<? ORDER BY rowid LIMIT ?", args2, remaining)
+        return first + second
     }
     fun loadTracksInFolder(folder: String, limit: Int = 1000): List<Track> =
         queryTrackRows("SELECT title,path,folder,artist,album,artwork FROM tracks WHERE folder=? ORDER BY title COLLATE NOCASE LIMIT ?", arrayOf(folder, limit.toString()), limit)
