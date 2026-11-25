@@ -2064,31 +2064,28 @@ class MainActivity : AppCompatActivity() {
     }
 
     private class SmbStreamDataSource(private val context: CIFSContext) : DataSource {
-        private var stream: SmbFileInputStream? = null
+        // Seek directly to the requested byte offset instead of skipping through a
+        // potentially huge SMB file when the listener resumes after scrubbing.
+        private var randomFile: jcifs.smb.SmbRandomAccessFile? = null
         private var uri: Uri? = null
         override fun addTransferListener(transferListener: TransferListener) {}
         override fun open(dataSpec: DataSpec): Long {
             uri = dataSpec.uri
             val file = SmbFile(dataSpec.uri.toString(), context)
-            stream = SmbFileInputStream(file)
-            var remaining = dataSpec.position
-            while (remaining > 0) {
-                val skipped = stream!!.skip(remaining)
-                if (skipped > 0) remaining -= skipped
-                else if (stream!!.read() == -1) throw java.io.EOFException("Could not seek to SMB offset")
-                else remaining--
-            }
-            val length = (file.length() - dataSpec.position).coerceAtLeast(0L)
-            return if (dataSpec.length != C.LENGTH_UNSET.toLong()) minOf(length, dataSpec.length) else length
+            val opened = jcifs.smb.SmbRandomAccessFile(file, "r")
+            randomFile = opened
+            opened.seek(dataSpec.position)
+            val remaining = (opened.length() - dataSpec.position).coerceAtLeast(0L)
+            return if (dataSpec.length != C.LENGTH_UNSET.toLong()) minOf(remaining, dataSpec.length) else remaining
         }
         override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
             if (length == 0) return 0
-            val count = stream?.read(buffer, offset, length) ?: -1
+            val count = randomFile?.read(buffer, offset, length) ?: -1
             return if (count == -1) C.RESULT_END_OF_INPUT else count
         }
         override fun getUri(): Uri? = uri
         override fun getResponseHeaders(): Map<String, List<String>> = emptyMap()
-        override fun close() { try { stream?.close() } finally { stream = null; uri = null } }
+        override fun close() { try { randomFile?.close() } finally { randomFile = null; uri = null } }
     }
 
     companion object {
