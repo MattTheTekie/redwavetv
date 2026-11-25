@@ -162,7 +162,11 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         val remaining = limit - first.size
         val args2 = if (excludePath.isBlank()) arrayOf(start.toString(), remaining.toString()) else arrayOf(excludePath, start.toString(), remaining.toString())
         val second = queryTrackRows(fields + exclude + "rowid<? ORDER BY rowid LIMIT ?", args2, remaining)
-        return first + second
+        // Keep one representative of each same-folder track identity in random
+        // selections too, matching the Library and Search duplicate policy.
+        return (first + second).distinctBy {
+            listOf(it.title.trim().lowercase(), it.artist.trim().lowercase(), it.album.trim().lowercase(), it.folder.trimEnd('/').lowercase())
+        }.take(limit)
     }
     fun loadTracksInFolder(folder: String, limit: Int = 1000): List<Track> =
         queryTrackRows("SELECT title,path,folder,artist,album,artwork FROM tracks WHERE folder=? ORDER BY title COLLATE NOCASE LIMIT ?", arrayOf(folder, limit.toString()), limit)
