@@ -403,7 +403,7 @@ class MainActivity : AppCompatActivity() {
                         Track(name.substringBeforeLast('.'), file.getURL().toString(), file.getParent() ?: path)
                     }
                     if (folderQueue.isNotEmpty()) content.addView(button("▶ PLAY FOLDER", true) {
-                        playTrack(folderQueue.first(), folderQueue)
+                        playTrack(folderQueue.first(), folderQueue, true)
                     }, LinearLayout.LayoutParams(-1, 48).apply { bottomMargin = 8 })
                     sortedPage.forEach { file ->
                         val name = file.getName().trimEnd('/')
@@ -411,7 +411,7 @@ class MainActivity : AppCompatActivity() {
                             content.addView(button("▤   $name   ›", false) { showRemoteFolder(file.getURL().toString()) }, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 6 })
                         } else {
                             content.addView(button("♫   " + name.substringBeforeLast('.'), false) {
-                                playTrack(Track(name.substringBeforeLast('.'), file.getURL().toString(), file.getParent() ?: path), folderQueue)
+                                playTrack(Track(name.substringBeforeLast('.'), file.getURL().toString(), file.getParent() ?: path), folderQueue, true)
                             }, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 6 })
                         }
                     }
@@ -491,15 +491,15 @@ class MainActivity : AppCompatActivity() {
         names.addView(label(track.artist + if (track.album.isNotBlank()) " · " + track.album else " · " + track.folder.trimEnd('/').substringAfterLast('/'), 11, MUTED))
         row.addView(names, LinearLayout.LayoutParams(0, 54, 1f))
         val favorite = try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }
-        row.addView(button(if (favorite) "★" else "☆", favorite) {
+        row.addView(button(if (favorite) "★" else "☆", false) {
             try {
                 val saved = libraryStore.isFavorite(track.path)
                 libraryStore.saveFavorite(track, !saved)
                 toast(if (saved) "Removed from favourites" else "Added to favourites")
             } catch (e: Exception) { toast("Could not save favourite: " + (e.message ?: "database error")) }
             if (currentScreen == "FAVOURITES") showFavourites() else if (currentScreen == "PLAYER") showPlayer() else refreshScreen()
-        }, LinearLayout.LayoutParams(48, 48))
-        row.addView(label("▶", 15, MUTED, true))
+        }, LinearLayout.LayoutParams(36, 36))
+        row.addView(label("▶", 13, MUTED, true))
         content.addView(row, LinearLayout.LayoutParams(-1, 62).apply { bottomMargin = 6 })
     }
 
