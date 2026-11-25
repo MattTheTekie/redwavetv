@@ -144,11 +144,15 @@ class MainActivity : AppCompatActivity() {
             Triple("⌂  HOME", "HOME") { showHome() },
             Triple("♫  LIBRARY", "QUEUE") { showQueue() },
             Triple("⌕  SEARCH", "SEARCH") { showSearch() },
-            Triple("📁  FOLDERS", "FOLDERS") { showFolders() },
+            Triple("FOLDERS", "FOLDERS") { showFolders() },
             Triple("⚙  SETTINGS", "SETTINGS") { showSettings() }
         )
         tabs.forEach { tab ->
             val nav = button(tab.first, currentScreen == tab.second) { tab.third() }
+            if (tab.second == "FOLDERS") {
+                nav.setCompoundDrawablesWithIntrinsicBounds(FolderGlyph(), null, null, null)
+                nav.compoundDrawablePadding = 7
+            }
             navButtons[tab.second] = nav
             nav.setOnFocusChangeListener { view, focused ->
                 val selected = if (tab.second == "QUEUE") currentScreen == "QUEUE" || currentScreen == "ALBUMS" else currentScreen == tab.second
@@ -306,13 +310,14 @@ class MainActivity : AppCompatActivity() {
             background = rounded(ORANGE, 10)
             setTextColor(0xFFFFF4E8.toInt())
             setOnFocusChangeListener { view, focused ->
-                view.background = rounded(if (focused) ORANGE_HI else ORANGE, 10)
+                view.background = rounded(if (focused) 0xFFF08A24.toInt() else 0xFFD97706.toInt(), 12)
                 (view as TextView).setTextColor(0xFFFFF4E8.toInt())
             }
         }
-        heroCopy.addView(openLibrary, LinearLayout.LayoutParams(210, 48).apply { topMargin = 14 })
+        openLibrary.background = rounded(0xFFD97706.toInt(), 12)
+        heroCopy.addView(openLibrary, LinearLayout.LayoutParams(224, 54).apply { topMargin = 16 })
         hero.addView(heroCopy, LinearLayout.LayoutParams(0, -2, 1f))
-        hero.addView(label("♫", 58, 0xFFFF7777.toInt(), true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(112, 112))
+        hero.addView(label("♫", 58, 0xFFFF454F.toInt(), true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(112, 112))
         content.addView(hero, LinearLayout.LayoutParams(-1, 180).apply { topMargin = 10; bottomMargin = 22 })
         if (isScanning) content.addView(label("Scanning network library…  " + tracks.size + " found", 13, GREEN, true), LinearLayout.LayoutParams(-1, 36))
         val recent = try { libraryStore.loadRecent(8) } catch (_: Exception) { emptyList() }
@@ -326,8 +331,8 @@ class MainActivity : AppCompatActivity() {
         addHomeSection(left, "FAVOURITES", "SEE ALL", favourites, "Save songs with ☆ to build your favourites.") { showFavourites() }
         addHomeSection(right, "RANDOM FROM YOUR LIBRARY", "SEE ALL SONGS", randomPicks, "Connect and scan your SMB library to get random picks.") { showQueue() }
         if (latest.isNotEmpty()) addHomeSection(right, "YOUR LIBRARY", "SEE ALL SONGS", latest, "Your scanned tracks will appear here.") { showQueue() }
-        columns.addView(left, LinearLayout.LayoutParams(0, -2, 1f).apply { rightMargin = 12 })
-        columns.addView(right, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = 12 })
+        columns.addView(left, LinearLayout.LayoutParams(0, -2, 1f).apply { rightMargin = 18 })
+        columns.addView(right, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = 18 })
         content.addView(columns, LinearLayout.LayoutParams(-1, -2))
         addNowPlaying()
         focusContent()
@@ -694,7 +699,7 @@ class MainActivity : AppCompatActivity() {
             nextFocusRightId = View.NO_ID
         }
         val previous = button("|◀", false) { playPrevious(); addNowPlaying() }.apply { id = View.generateViewId() }
-        val playPause = button(if (player.playWhenReady) "Ⅱ" else "▶", false) { player.playWhenReady = !player.playWhenReady; updatePlaybackButtons() }.apply { id = View.generateViewId(); miniPlayPause = this }
+        val playPause = button(if (player.playWhenReady) "Ⅱ" else "▶", false) { togglePlayback() }.apply { id = View.generateViewId(); miniPlayPause = this }
         val next = button("▶|", false) { playNext(); addNowPlaying() }.apply { id = View.generateViewId() }
         openPlayer.nextFocusRightId = previous.id
         previous.nextFocusLeftId = openPlayer.id
@@ -710,10 +715,15 @@ class MainActivity : AppCompatActivity() {
         bottomPlayer.addView(bar, LinearLayout.LayoutParams(-1, 54))
     }
 
+    private fun togglePlayback() {
+        if (player.playWhenReady) player.pause() else player.play()
+        updatePlaybackButtons()
+    }
+
     private fun updatePlaybackButtons() {
-        val label = if (player.playWhenReady) "Ⅱ  PAUSE" else "▶  PLAY"
-        playerPlayPause?.text = label
-        miniPlayPause?.text = if (player.playWhenReady) "Ⅱ" else "▶"
+        val playing = player.playWhenReady && player.playbackState != com.google.android.exoplayer2.Player.STATE_ENDED
+        playerPlayPause?.text = if (playing) "Ⅱ  PAUSE" else "▶  PLAY"
+        miniPlayPause?.text = if (playing) "Ⅱ" else "▶"
     }
 
     private fun refreshScreen() {
@@ -825,7 +835,7 @@ class MainActivity : AppCompatActivity() {
         }, LinearLayout.LayoutParams(-1, 46))
         val controls = LinearLayout(this).apply { gravity = Gravity.CENTER; orientation = LinearLayout.HORIZONTAL }
         controls.addView(button("PREVIOUS", false) { playPrevious() }, LinearLayout.LayoutParams(120, 54))
-        val playerToggle = button(if (player.playWhenReady) "Ⅱ  PAUSE" else "▶  PLAY", true) { player.playWhenReady = !player.playWhenReady; updatePlaybackButtons() }.apply { playerPlayPause = this }
+        val playerToggle = button(if (player.playWhenReady) "Ⅱ  PAUSE" else "▶  PLAY", true) { togglePlayback() }.apply { playerPlayPause = this }
         controls.addView(playerToggle, LinearLayout.LayoutParams(150, 54).apply { leftMargin = 12; rightMargin = 12 })
         controls.addView(button("NEXT", false) { playNext() }, LinearLayout.LayoutParams(120, 54))
         content.addView(controls, LinearLayout.LayoutParams(-1, 62))
@@ -1326,6 +1336,29 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private class FolderGlyph : android.graphics.drawable.Drawable() {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFF4057.toInt(); style = Paint.Style.FILL }
+        override fun draw(canvas: Canvas) {
+            val b = bounds
+            val w = b.width().toFloat(); val h = b.height().toFloat()
+            val path = android.graphics.Path().apply {
+                moveTo(b.left + w * 0.08f, b.top + h * 0.22f)
+                lineTo(b.left + w * 0.42f, b.top + h * 0.22f)
+                lineTo(b.left + w * 0.54f, b.top + h * 0.36f)
+                lineTo(b.left + w * 0.91f, b.top + h * 0.36f)
+                lineTo(b.left + w * 0.84f, b.top + h * 0.82f)
+                lineTo(b.left + w * 0.10f, b.top + h * 0.82f)
+                close()
+            }
+            canvas.drawPath(path, paint)
+        }
+        override fun setAlpha(alpha: Int) { paint.alpha = alpha }
+        override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) { paint.colorFilter = colorFilter }
+        override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
+        override fun getIntrinsicWidth(): Int = 20
+        override fun getIntrinsicHeight(): Int = 18
+    }
+
     private fun button(title: String, selected: Boolean, action: () -> Unit): TextView = TextView(this).apply {
         text = title
         textSize = 13f
@@ -1365,9 +1398,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         when (keyCode) {
-            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { if (player.isPlaying) player.pause() else player.play(); refreshScreen(); return true }
-            KeyEvent.KEYCODE_MEDIA_PLAY -> { player.play(); refreshScreen(); return true }
-            KeyEvent.KEYCODE_MEDIA_PAUSE -> { player.pause(); refreshScreen(); return true }
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { togglePlayback(); return true }
+            KeyEvent.KEYCODE_MEDIA_PLAY -> { player.play(); updatePlaybackButtons(); return true }
+            KeyEvent.KEYCODE_MEDIA_PAUSE -> { player.pause(); updatePlaybackButtons(); return true }
+            KeyEvent.KEYCODE_DPAD_DOWN -> if (currentScreen == "LYRICS" || currentScreen == "PLAYER") { contentScroll.smoothScrollBy(0, (resources.displayMetrics.density * 72).toInt()); return true }
+            KeyEvent.KEYCODE_DPAD_UP -> if (currentScreen == "LYRICS" || currentScreen == "PLAYER") { contentScroll.smoothScrollBy(0, -(resources.displayMetrics.density * 72).toInt()); return true }
             KeyEvent.KEYCODE_MEDIA_NEXT -> { playNext(); return true }
             KeyEvent.KEYCODE_MEDIA_PREVIOUS -> { playPrevious(); return true }
         }
