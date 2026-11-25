@@ -227,8 +227,9 @@ class MainActivity : AppCompatActivity() {
             if (tab.second == "FOLDERS") {
                 // Keep icon and label in one centered text run instead of anchoring
                 // the drawable to the far left edge of the navigation button.
+                val folderIcon = FolderGlyph().apply { setBounds(0, 0, 22, 22) }
                 nav.text = SpannableString(" FOLDERS").apply {
-                    setSpan(ImageSpan(FolderGlyph()), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    setSpan(ImageSpan(folderIcon, ImageSpan.ALIGN_BOTTOM), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 nav.gravity = Gravity.CENTER
             }
@@ -383,7 +384,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateStatus() {
         if (!::statusText.isInitialized) return
-        val indexedCount = if (::libraryStore.isInitialized) safeTrackCount() else tracks.size
+        // Never run COUNT(*) over a large library on the UI thread.
+        // Home's background loader refreshes this cached value when ready.
+        val indexedCount = if (homeDataLoaded) homeIndexedCount else tracks.size.toLong()
         statusText.text = when {
             isScanning -> "SCANNING • " + indexedCount + " TRACKS"
             smbContext != null -> "CONNECTED • " + indexedCount + " TRACKS"
@@ -474,9 +477,8 @@ class MainActivity : AppCompatActivity() {
             val count = try { libraryStore.countTracks() } catch (_: Exception) { 0L }
             val restored = try { libraryStore.loadRecent(1).firstOrNull() } catch (_: Exception) { null }
             val all = (recent + favourites + randomPicks + latest).distinctBy { it.path }
-            val favouritePaths = all.filter { track ->
-                try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }
-            }.map { it.path }.toSet()
+            // One indexed SQLite query replaces hundreds of per-track favorite lookups.
+            val favouritePaths = try { libraryStore.favoritePaths(all.map { it.path }) } catch (_: Exception) { emptySet() }
             runOnUiThread {
                 homeLoadInProgress = false
                 if (isFinishing || isDestroyed) return@runOnUiThread
