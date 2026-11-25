@@ -1401,8 +1401,8 @@ class MainActivity : AppCompatActivity() {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { togglePlayback(); return true }
             KeyEvent.KEYCODE_MEDIA_PLAY -> { player.play(); updatePlaybackButtons(); return true }
             KeyEvent.KEYCODE_MEDIA_PAUSE -> { player.pause(); updatePlaybackButtons(); return true }
-            KeyEvent.KEYCODE_DPAD_DOWN -> if (currentScreen == "LYRICS" || currentScreen == "PLAYER") { contentScroll.smoothScrollBy(0, (resources.displayMetrics.density * 72).toInt()); return true }
-            KeyEvent.KEYCODE_DPAD_UP -> if (currentScreen == "LYRICS" || currentScreen == "PLAYER") { contentScroll.smoothScrollBy(0, -(resources.displayMetrics.density * 72).toInt()); return true }
+            KeyEvent.KEYCODE_DPAD_DOWN -> if (currentScreen == "LYRICS") { contentScroll.smoothScrollBy(0, (resources.displayMetrics.density * 72).toInt()); return true }
+            KeyEvent.KEYCODE_DPAD_UP -> if (currentScreen == "LYRICS") { contentScroll.smoothScrollBy(0, -(resources.displayMetrics.density * 72).toInt()); return true }
             KeyEvent.KEYCODE_MEDIA_NEXT -> { playNext(); return true }
             KeyEvent.KEYCODE_MEDIA_PREVIOUS -> { playPrevious(); return true }
         }
