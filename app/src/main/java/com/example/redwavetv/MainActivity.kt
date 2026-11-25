@@ -151,7 +151,7 @@ class MainActivity : AppCompatActivity() {
             val nav = button(tab.first, currentScreen == tab.second) { tab.third() }
             if (tab.second == "FOLDERS") {
                 nav.setCompoundDrawablesWithIntrinsicBounds(FolderGlyph(), null, null, null)
-                nav.compoundDrawablePadding = 7
+                nav.compoundDrawablePadding = 5
             }
             navButtons[tab.second] = nav
             nav.setOnFocusChangeListener { view, focused ->
@@ -301,7 +301,7 @@ class MainActivity : AppCompatActivity() {
             background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(0xFF54171D.toInt(), 0xFF24191B.toInt(), SURFACE)).apply { cornerRadius = 18f }
         }
         val heroCopy = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        heroCopy.addView(label("ALL YOUR MUSIC.\nONE BEAUTIFUL LIBRARY.", 25, WHITE, true), LinearLayout.LayoutParams(-1, 78))
+        heroCopy.addView(label("ALL YOUR MUSIC.\nONE BEAUTIFUL LIBRARY.", 25, WHITE, true), LinearLayout.LayoutParams(-1, 68))
         heroCopy.addView(label(safeTrackCount().toString() + " songs indexed  ·  browse folders anytime", 13, 0xFFD8D8DE.toInt()))
         val openLibrary = button(if (smbContext == null) "OPEN SETTINGS" else "OPEN LIBRARY", false) {
             if (smbContext != null) showQueue() else showSettings()
@@ -315,10 +315,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
         openLibrary.background = rounded(0xFFD97706.toInt(), 12)
-        heroCopy.addView(openLibrary, LinearLayout.LayoutParams(224, 54).apply { topMargin = 16 })
+        heroCopy.addView(openLibrary, LinearLayout.LayoutParams(196, 50).apply { topMargin = 10 })
         hero.addView(heroCopy, LinearLayout.LayoutParams(0, -2, 1f))
         hero.addView(label("♫", 58, 0xFFFF454F.toInt(), true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(112, 112))
-        content.addView(hero, LinearLayout.LayoutParams(-1, 180).apply { topMargin = 10; bottomMargin = 22 })
+        content.addView(hero, LinearLayout.LayoutParams(-1, -2).apply { topMargin = 10; bottomMargin = 22 })
         if (isScanning) content.addView(label("Scanning network library…  " + tracks.size + " found", 13, GREEN, true), LinearLayout.LayoutParams(-1, 36))
         val recent = try { libraryStore.loadRecent(8) } catch (_: Exception) { emptyList() }
         val favourites = try { libraryStore.loadFavorites(8) } catch (_: Exception) { emptyList() }
@@ -590,21 +590,40 @@ class MainActivity : AppCompatActivity() {
             setOnFocusChangeListener { v, focus -> v.background = rounded(if (focus) RED else SURFACE, 10) }
             setOnClickListener { playTrack(track, queue) }
         }
-        row.addView(label("♫", 18, RED, true), LinearLayout.LayoutParams(30, 44))
+        val play = button("▶", false) { playTrack(track, queue) }.apply {
+            textSize = 15f
+            setTextColor(WHITE)
+            background = rounded(0xFF343B4A.toInt(), 18)
+            setOnFocusChangeListener { view, focused -> view.background = rounded(if (focused) RED else 0xFF343B4A.toInt(), 18) }
+        }
+        row.addView(play, LinearLayout.LayoutParams(38, 38).apply { rightMargin = 10 })
         val names = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL }
         names.addView(label(track.title, 13, WHITE, true).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
         names.addView(label(track.artist + if (track.album.isNotBlank()) " · " + track.album else " · " + track.folder.trimEnd('/').substringAfterLast('/'), 10, MUTED).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
         row.addView(names, LinearLayout.LayoutParams(0, 54, 1f))
         val favorite = try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }
-        row.addView(button(if (favorite) "★" else "☆", false) {
-            try {
-                val saved = libraryStore.isFavorite(track.path)
-                libraryStore.saveFavorite(track, !saved)
-                toast(if (saved) "Removed from favourites" else "Added to favourites")
-            } catch (e: Exception) { toast("Could not save favourite: " + (e.message ?: "database error")) }
-            if (currentScreen == "FAVOURITES") showFavourites() else if (currentScreen == "PLAYER") showPlayer() else refreshScreen()
-        }, LinearLayout.LayoutParams(36, 36))
-        row.addView(label("▶", 13, MUTED, true))
+        val favoriteButton = TextView(this).apply {
+            text = if (favorite) "★" else "☆"
+            textSize = 21f
+            gravity = Gravity.CENTER
+            setTextColor(if (favorite) 0xFFFFB547.toInt() else MUTED)
+            isFocusable = true
+            isFocusableInTouchMode = true
+            isClickable = true
+            background = rounded(SURFACE, 8)
+            setOnFocusChangeListener { view, focused -> view.background = rounded(if (focused) SURFACE_HI else SURFACE, 8) }
+            setOnClickListener {
+                try {
+                    val saved = libraryStore.isFavorite(track.path)
+                    libraryStore.saveFavorite(track, !saved)
+                    toast(if (saved) "Removed from favourites" else "Added to favourites")
+                    text = if (saved) "☆" else "★"
+                    setTextColor(if (saved) MUTED else 0xFFFFB547.toInt())
+                } catch (e: Exception) { toast("Could not save favourite: " + (e.message ?: "database error")) }
+                if (currentScreen == "FAVOURITES") showFavourites()
+            }
+        }
+        row.addView(favoriteButton, LinearLayout.LayoutParams(42, 40).apply { leftMargin = 6 })
         parent.addView(row, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 6 })
     }
 
@@ -617,7 +636,7 @@ class MainActivity : AppCompatActivity() {
         content.addView(query, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 12 })
         val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(results, LinearLayout.LayoutParams(-1, -2))
-        fun runSearch(value: String) {
+        fun runSearch(value: String, offset: Int = 0) {
             searchGeneration++
             val generation = searchGeneration
             searchHandler.removeCallbacksAndMessages("search")
@@ -627,25 +646,31 @@ class MainActivity : AppCompatActivity() {
             results.addView(label("Searching…", 14, MUTED))
             val task = Runnable {
                 searchExecutor.execute {
-                    val matches = try { libraryStore.searchTracks(value, 60) } catch (e: Exception) {
+                    val matches = try { libraryStore.searchTracks(value, 61, offset) } catch (e: Exception) {
                         android.util.Log.e("RedWaveSearch", "Search failed", e); emptyList()
                     }
                     runOnUiThread {
                         if (generation != searchGeneration || currentScreen != "SEARCH") return@runOnUiThread
                         results.removeAllViews()
-                        if (matches.isEmpty()) results.addView(label("No matching tracks.", 14, MUTED)) else matches.forEach { track ->
+                        results.addView(label("Results ${offset + 1}–${offset + minOf(matches.size, 60)}", 12, MUTED))
+                        val visible = matches.take(60)
+                        if (visible.isEmpty()) results.addView(label("No matching tracks.", 14, MUTED)) else visible.forEach { track ->
                             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-                            row.addView(button("▶  ${track.title}  ·  ${track.artist}", false) { playTrack(track, matches) }, LinearLayout.LayoutParams(0, 54, 1f))
-                            row.addView(button(if (try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }) "★" else "☆", false) {
+                            row.addView(button("▶  ${track.title}  ·  ${track.artist}", false) { playTrack(track, visible) }, LinearLayout.LayoutParams(0, 54, 1f))
+                            val isFav = try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }
+                            row.addView(button(if (isFav) "★" else "☆", false) {
                                 try {
-                                    val saved = libraryStore.isFavorite(track.path)
-                                    libraryStore.saveFavorite(track, !saved)
-                                    toast(if (saved) "Removed from favourites" else "Added to favourites")
+                                    libraryStore.saveFavorite(track, !isFav)
+                                    toast(if (isFav) "Removed from favourites" else "Added to favourites")
+                                    runSearch(value, offset)
                                 } catch (e: Exception) { toast("Could not save favourite: " + (e.message ?: "database error")) }
-                                runSearch(value)
                             }, LinearLayout.LayoutParams(54, 48))
                             results.addView(row)
                         }
+                        val paging = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setPadding(0, 12, 0, 12) }
+                        if (offset > 0) paging.addView(button("PREVIOUS 60", false) { runSearch(value, (offset - 60).coerceAtLeast(0)) }, LinearLayout.LayoutParams(180, 48).apply { rightMargin = 10 })
+                        if (matches.size > 60) paging.addView(button("NEXT 60", true) { runSearch(value, offset + 60) }, LinearLayout.LayoutParams(180, 48))
+                        if (paging.childCount > 0) results.addView(paging, LinearLayout.LayoutParams(-1, 64))
                     }
                 }
             }
@@ -1287,10 +1312,10 @@ class MainActivity : AppCompatActivity() {
             super.onAttachedToWindow()
             spinAnimator?.cancel()
             spinAnimator = ValueAnimator.ofFloat(0f, 360f).apply {
-                duration = 18000L
+                duration = 9000L
                 repeatCount = ValueAnimator.INFINITE
                 interpolator = LinearInterpolator()
-                addUpdateListener { rotationDegrees = it.animatedValue as Float; invalidate() }
+                addUpdateListener { rotationDegrees = it.animatedValue as Float; postInvalidateOnAnimation() }
                 start()
             }
         }
@@ -1313,10 +1338,15 @@ class MainActivity : AppCompatActivity() {
             val save = canvas.save()
             canvas.rotate(rotationDegrees, cx, cy)
             for (i in 1..10) {
-                stroke.color = if (i % 3 == 0) 0xFF555861.toInt() else 0xFF292C33.toInt()
+                stroke.color = if (i % 3 == 0) 0xFF777B84.toInt() else 0xFF3A3E47.toInt()
                 stroke.strokeWidth = if (i % 3 == 0) 2f else 1f
-                canvas.drawCircle(cx, cy, radius * (0.48f + i * 0.047f), stroke)
+                val ringRadius = radius * (0.48f + i * 0.047f)
+                val ring = android.graphics.RectF(cx - ringRadius, cy - ringRadius, cx + ringRadius, cy + ringRadius)
+                canvas.drawArc(ring, rotationDegrees + i * 11f, 250f, false, stroke)
             }
+            stroke.color = 0xFF8A8E98.toInt()
+            stroke.strokeWidth = 2f
+            canvas.drawLine(cx + radius * 0.53f, cy, cx + radius * 0.91f, cy, stroke)
             canvas.restoreToCount(save)
             fill.color = 0xFFB00020.toInt()
             canvas.drawCircle(cx, cy, radius * 0.34f, fill)
@@ -1337,7 +1367,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private class FolderGlyph : android.graphics.drawable.Drawable() {
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFF4057.toInt(); style = Paint.Style.FILL }
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = WHITE; style = Paint.Style.FILL }
         override fun draw(canvas: Canvas) {
             val b = bounds
             val w = b.width().toFloat(); val h = b.height().toFloat()
@@ -1355,8 +1385,8 @@ class MainActivity : AppCompatActivity() {
         override fun setAlpha(alpha: Int) { paint.alpha = alpha }
         override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) { paint.colorFilter = colorFilter }
         override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
-        override fun getIntrinsicWidth(): Int = 20
-        override fun getIntrinsicHeight(): Int = 18
+        override fun getIntrinsicWidth(): Int = 16
+        override fun getIntrinsicHeight(): Int = 16
     }
 
     private fun button(title: String, selected: Boolean, action: () -> Unit): TextView = TextView(this).apply {
