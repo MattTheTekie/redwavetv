@@ -82,6 +82,16 @@ class MainActivity : AppCompatActivity() {
     private var isScanning = false
     private var scanStatus = "Not connected"
     private var currentScreen = "HOME"
+    // Keep Home's data stable across tab changes; only explicit refresh/scan invalidates it.
+    private var homeDataLoaded = false
+    private var homeLoadInProgress = false
+    private var randomSelectionLoaded = false
+    private var homeRecentTracks: List<Track> = emptyList()
+    private var homeFavoriteTracks: List<Track> = emptyList()
+    private var homeRandomTracks: List<Track> = emptyList()
+    private var homeLatestTracks: List<Track> = emptyList()
+    private var homeFavoritePaths: Set<String> = emptySet()
+    private var homeIndexedCount: Long = 0L
     private var currentLyrics: List<LyricLine> = emptyList()
     private var lyricsStatus = "Choose a track to look for an .lrc file"
     private var lyricsLoadingPath = ""
@@ -374,18 +384,24 @@ class MainActivity : AppCompatActivity() {
         addNowPlaying()
         focusContent()
 
-        // The first frame is visible and focusable before any library query begins.
+        // Reuse the same selection and recent/favourite rows when returning from another tab.
+        if (homeDataLoaded) {
+            countLabel.text = "$homeIndexedCount songs indexed · browse folders anytime"
+            populateHomeColumns(homeColumns)
+            return
+        }
+        if (homeLoadInProgress) return
+        homeLoadInProgress = true
         thread(name = "redwave-home-load") {
-            android.util.Log.i("RedWaveHome", "Starting asynchronous Home library load")
-            val recent = try {
-                libraryStore.loadRecent(8).also { android.util.Log.i("RedWaveHome", "Loaded recent tracks: ${it.size}") }
-            } catch (e: Exception) {
+            android.util.Log.i("RedWaveHome", "Loading Home data once")
+            val recent = try { libraryStore.loadRecent(8) } catch (e: Exception) {
                 android.util.Log.e("RedWaveHome", "Could not load recent tracks", e); emptyList()
             }
             val favourites = try { libraryStore.loadFavorites(8) } catch (e: Exception) {
                 android.util.Log.e("RedWaveHome", "Could not load favourites", e); emptyList()
             }
-            val randomPicks = try { libraryStore.loadRandomTracks(12) } catch (e: Exception) {
+            // This exact 300-song selection is shared by the Home preview and full random screen.
+            val randomPicks = try { libraryStore.loadRandomTracks(300) } catch (e: Exception) {
                 android.util.Log.e("RedWaveHome", "Could not load random tracks", e); emptyList()
             }
             val latest = try { libraryStore.loadTracks(8) } catch (e: Exception) {
@@ -398,27 +414,38 @@ class MainActivity : AppCompatActivity() {
                 try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }
             }.map { it.path }.toSet()
             runOnUiThread {
-                if (isFinishing || isDestroyed || currentScreen != "HOME") return@runOnUiThread
+                homeLoadInProgress = false
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                homeRecentTracks = recent
+                homeFavoriteTracks = favourites
+                homeRandomTracks = randomPicks
+                homeLatestTracks = latest
+                homeFavoritePaths = favouritePaths
+                homeIndexedCount = count
+                homeDataLoaded = true
+                randomSelectionLoaded = true
                 if (playingTrack == null && restored != null) {
                     playingTrack = restored
-                    addNowPlaying()
+                    if (currentScreen == "HOME") addNowPlaying()
                 }
-                countLabel.text = if (isScanning) "$count songs indexed · scan continuing in background" else "$count songs indexed · browse folders anytime"
-                android.util.Log.i("RedWaveHome", "Home data rendered: count=$count recent=${recent.size} favourites=${favourites.size} random=${randomPicks.size} latest=${latest.size}")
-                content.removeView(homeColumns)
-                val columns = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.TOP }
-                val left = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-                val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-                addHomeSection(left, "RECENTLY PLAYED", "SEE ALL", recent, "Play a song and it will appear here.", favouritePaths) { showRecents() }
-                addHomeSection(left, "FAVOURITES", "SEE ALL", favourites, "Save songs with ☆ to build your favourites.", favouritePaths) { showFavourites() }
-                addHomeSection(right, "RANDOM FROM YOUR LIBRARY", "SHOW SONGS", randomPicks, "Discover a fresh shuffled selection from your scanned music library.", favouritePaths) { showRandomSongs() }
-                if (latest.isNotEmpty()) addHomeSection(right, "YOUR LIBRARY", "SEE ALL SONGS", latest, "Your scanned tracks will appear here.", favouritePaths) { showQueue() }
-                columns.addView(left, LinearLayout.LayoutParams(0, -2, 1f).apply { rightMargin = 18 })
-                columns.addView(right, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = 18 })
-                content.addView(columns, LinearLayout.LayoutParams(-1, -2))
-                focusContent()
+                if (currentScreen == "HOME") {
+                    countLabel.text = "$count songs indexed · browse folders anytime"
+                    populateHomeColumns(homeColumns)
+                }
             }
         }
+    }
+
+    private fun populateHomeColumns(columns: LinearLayout) {
+        columns.removeAllViews()
+        val left = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        addHomeSection(left, "RECENTLY PLAYED", "SEE ALL", homeRecentTracks, "Play a song and it will appear here.", homeFavoritePaths) { showRecents() }
+        addHomeSection(left, "FAVOURITES", "SEE ALL", homeFavoriteTracks, "Save songs with ☆ to build your favourites.", homeFavoritePaths) { showFavourites() }
+        addHomeSection(right, "RANDOM FROM YOUR LIBRARY", "SHOW SONGS", homeRandomTracks, "Discover a fresh shuffled selection from your scanned music library.", homeFavoritePaths) { showRandomSongs() }
+        if (homeLatestTracks.isNotEmpty()) addHomeSection(right, "YOUR LIBRARY", "SEE ALL SONGS", homeLatestTracks, "Your scanned tracks will appear here.", homeFavoritePaths) { showQueue() }
+        columns.addView(left, LinearLayout.LayoutParams(0, -2, 1f).apply { rightMargin = 18 })
+        columns.addView(right, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = 18 })
     }
 
     private fun addHomeSection(parent: LinearLayout, title: String, action: String, items: List<Track>, emptyText: String, favoritePaths: Set<String> = emptySet(), onClick: () -> Unit) {
