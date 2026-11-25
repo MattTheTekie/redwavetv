@@ -1305,7 +1305,6 @@ class MainActivity : AppCompatActivity() {
         private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
         private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1.5f }
         private var rotationDegrees = 0f
-        private var spinAnimator: ValueAnimator? = null
         private val artwork = artworkPath?.takeIf { it.isNotBlank() }?.let {
             try {
                 val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -1318,14 +1317,7 @@ class MainActivity : AppCompatActivity() {
 
         override fun onAttachedToWindow() {
             super.onAttachedToWindow()
-            spinAnimator?.cancel()
-            spinAnimator = ValueAnimator.ofFloat(0f, 360f).apply {
-                duration = 9000L
-                repeatCount = ValueAnimator.INFINITE
-                interpolator = LinearInterpolator()
-                addUpdateListener { rotationDegrees = it.animatedValue as Float; invalidate() }
-                start()
-            }
+            removeCallbacks(spinFrame)
             postOnAnimation(spinFrame)
         }
 
@@ -1340,8 +1332,6 @@ class MainActivity : AppCompatActivity() {
 
         override fun onDetachedFromWindow() {
             removeCallbacks(spinFrame)
-            spinAnimator?.cancel()
-            spinAnimator = null
             super.onDetachedFromWindow()
         }
 
