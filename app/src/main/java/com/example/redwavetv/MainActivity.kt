@@ -80,6 +80,8 @@ class MainActivity : AppCompatActivity() {
     private var currentScreen = "HOME"
     private var currentLyrics: List<LyricLine> = emptyList()
     private var lyricsStatus = "Choose a track to look for an .lrc file"
+    private var lyricsLoadingPath = ""
+    private var playerLyricLine: TextView? = null
     private val lyricsHandler = Handler(Looper.getMainLooper())
     private val artCache = mutableMapOf<String, android.graphics.Bitmap?>()
     private lateinit var libraryStore: LibraryStore
@@ -615,10 +617,14 @@ class MainActivity : AppCompatActivity() {
     private val progressUpdater = object : Runnable {
         override fun run() {
             val bar = progressSeekBar
-            if (currentScreen == "PLAYER" && bar != null && player.duration > 0 && !bar.isPressed) {
-                bar.progress = ((player.currentPosition.toDouble() / player.duration.toDouble()) * 1000).toInt().coerceIn(0, 1000)
+            if (currentScreen == "PLAYER") {
+                if (bar != null && player.duration > 0 && !bar.isPressed) {
+                    bar.progress = ((player.currentPosition.toDouble() / player.duration.toDouble()) * 1000).toInt().coerceIn(0, 1000)
+                }
+                val line = currentLyrics.lastOrNull { it.timeMs <= player.currentPosition }?.text
+                playerLyricLine?.text = line ?: if (currentLyrics.isEmpty()) lyricsStatus else "♪"
+                progressHandler.postDelayed(this, 500)
             }
-            if (currentScreen == "PLAYER") progressHandler.postDelayed(this, 500)
         }
     }
 
@@ -628,6 +634,7 @@ class MainActivity : AppCompatActivity() {
         bottomPlayer.visibility = View.GONE
         content.removeAllViews()
         val track = playingTrack ?: tracks.getOrNull(currentTrack)
+        if (track != null && currentLyrics.isEmpty() && lyricsLoadingPath != track.path) loadLyrics(track, false)
         val modes = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         modes.addView(button(if (shuffleEnabled) "SHUFFLE ON" else "SHUFFLE OFF", shuffleEnabled) { shuffleEnabled = !shuffleEnabled; player.shuffleModeEnabled = shuffleEnabled; showPlayer() }, LinearLayout.LayoutParams(150, 46))
         modes.addView(button(when (repeatMode) { 1 -> "REPEAT ONE"; 2 -> "REPEAT ALL"; else -> "REPEAT OFF" }, repeatMode != 0) {
@@ -638,7 +645,7 @@ class MainActivity : AppCompatActivity() {
         }, LinearLayout.LayoutParams(150, 46).apply { leftMargin = 10 })
         content.addView(modes, LinearLayout.LayoutParams(-1, 52))
         content.addView(label("NOW PLAYING", 12, RED, true), LinearLayout.LayoutParams(-1, 34))
-        val art = VinylRecordView(this)
+        val art = VinylRecordView(this, track?.artworkPath)
         art.contentDescription = "Rotating vinyl record"
         val density = resources.displayMetrics.density
         val availableWidthDp = (resources.displayMetrics.widthPixels / density).toInt() - 72
@@ -686,7 +693,9 @@ class MainActivity : AppCompatActivity() {
         controls.addView(button(if (player.isPlaying) "Ⅱ  PAUSE" else "▶  PLAY", true) { if (player.isPlaying) player.pause() else player.play(); showPlayer() }, LinearLayout.LayoutParams(150, 54).apply { leftMargin = 12; rightMargin = 12 })
         controls.addView(button("NEXT", false) { playNext() }, LinearLayout.LayoutParams(120, 54))
         content.addView(controls, LinearLayout.LayoutParams(-1, 62))
-        content.addView(button("OPEN LYRICS", false) { showLyrics() }, LinearLayout.LayoutParams(210, 40).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = 8 })
+        playerLyricLine = label(currentLyrics.lastOrNull { it.timeMs <= player.currentPosition }?.text ?: if (currentLyrics.isEmpty()) lyricsStatus else "♪", 16, WHITE, true).apply { gravity = Gravity.CENTER; maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(18, 10, 18, 10); background = rounded(SURFACE, 10) }
+        content.addView(playerLyricLine, LinearLayout.LayoutParams(-1, 58).apply { topMargin = 8; bottomMargin = 4 })
+        content.addView(button("OPEN LYRICS", false) { showLyrics() }, LinearLayout.LayoutParams(210, 40).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = 4 })
     }
 
     private fun showLyrics() {
@@ -740,7 +749,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadLyrics(track: Track, force: Boolean) {
-        if (!force && currentLyrics.isNotEmpty()) return
+        if (!force && (currentLyrics.isNotEmpty() || lyricsLoadingPath == track.path)) return
+        lyricsLoadingPath = track.path
         lyricsStatus = "Searching online lyrics…"
         thread(name = "redwave-online-lyrics") {
             var parsed = emptyList<LyricLine>()
@@ -775,7 +785,11 @@ class MainActivity : AppCompatActivity() {
             }
             currentLyrics = parsed
             lyricsStatus = if (parsed.isEmpty()) message.ifBlank { "Lyrics not found" } else message.ifBlank { "Lyrics loaded" }
-            runOnUiThread { if (currentScreen == "LYRICS") showLyrics() }
+            runOnUiThread {
+                if (playingTrack?.path == track.path) {
+                    if (currentScreen == "LYRICS") showLyrics() else if (currentScreen == "PLAYER") showPlayer()
+                }
+            }
         }
     }
 
@@ -1050,6 +1064,8 @@ class MainActivity : AppCompatActivity() {
                 libraryStore.recordPlay(track.path)
             } catch (_: Exception) { }
             currentLyrics = emptyList()
+            lyricsLoadingPath = ""
+            playerLyricLine = null
             lyricsStatus = "Choose a track to look for an .lrc file"
             val factory = DataSource.Factory { SmbStreamDataSource(ctx) }
             val source = ProgressiveMediaSource.Factory(factory).createMediaSource(MediaItem.fromUri(track.path))
@@ -1073,9 +1089,10 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) { toast("Playback error: " + (e.message ?: e.javaClass.simpleName)) }
     }
 
-    private inner class VinylRecordView(context: android.content.Context) : View(context) {
+    private inner class VinylRecordView(context: android.content.Context, artworkPath: String?) : View(context) {
         private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
         private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1.5f }
+        private val artwork = artworkPath?.takeIf { it.isNotBlank() }?.let { try { BitmapFactory.decodeFile(it) } catch (_: Exception) { null } }
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             val cx = width / 2f
@@ -1090,13 +1107,19 @@ class MainActivity : AppCompatActivity() {
             }
             fill.color = 0xFFB8324B.toInt()
             canvas.drawCircle(cx, cy, radius * 0.34f, fill)
+            if (artwork != null && !artwork.isRecycled) {
+                val save = canvas.save()
+                val artRadius = radius * 0.30f
+                val clip = android.graphics.Path().apply { addCircle(cx, cy, artRadius, android.graphics.Path.Direction.CW) }
+                canvas.clipPath(clip)
+                val side = minOf(artwork.width, artwork.height)
+                val src = android.graphics.Rect((artwork.width-side)/2, (artwork.height-side)/2, (artwork.width+side)/2, (artwork.height+side)/2)
+                val dst = android.graphics.RectF(cx-artRadius, cy-artRadius, cx+artRadius, cy+artRadius)
+                canvas.drawBitmap(artwork, src, dst, fill)
+                canvas.restoreToCount(save)
+            }
             fill.color = 0xFFFFB05A.toInt()
             canvas.drawCircle(cx, cy, radius * 0.055f, fill)
-            fill.color = 0xFFE8D5D0.toInt()
-            fill.textAlign = Paint.Align.CENTER
-            fill.textSize = radius * 0.12f
-            fill.typeface = Typeface.DEFAULT_BOLD
-            canvas.drawText("REDWAVE", cx, cy + radius * 0.20f, fill)
         }
     }
 
