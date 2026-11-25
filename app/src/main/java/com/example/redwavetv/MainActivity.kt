@@ -1316,16 +1316,30 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadLyrics(track: Track, force: Boolean) {
         if (!force && (currentLyrics.isNotEmpty() || lyricsLoadingPath == track.path)) return
-        val requestGeneration = ++lyricsRequestGeneration
         lyricsLoadingPath = track.path
-        currentLyrics = emptyList()
         lyricsStatus = "Searching online lyrics…"
-        if (currentScreen == "LYRICS") showLyrics()
         thread(name = "redwave-online-lyrics") {
             var parsed = emptyList<LyricLine>()
             var message = ""
-            // Prefer the matching sidecar on the SMB share; only query LRCLIB if it has no usable lyrics.
-            if (smbContext != null) {
+            try {
+                val address = "https://lrclib.net/api/get?artist_name=" +
+                    java.net.URLEncoder.encode(track.artist, "UTF-8") + "&track_name=" +
+                    java.net.URLEncoder.encode(track.title, "UTF-8")
+                val connection = java.net.URL(address).openConnection() as java.net.HttpURLConnection
+                connection.connectTimeout = 9000
+                connection.readTimeout = 9000
+                connection.setRequestProperty("User-Agent", "RedWaveTV Android music player")
+                try {
+                    if (connection.responseCode == 200) {
+                        val json = org.json.JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                        val synced = json.optString("syncedLyrics", "")
+                        val plain = json.optString("plainLyrics", "")
+                        parsed = if (synced.isNotBlank()) parseLrcText(synced) else plain.lines()
+                            .filter { it.isNotBlank() }.mapIndexed { index, line -> LyricLine(index * 4500L, line) }
+                    } else message = "No matching online lyrics"
+                } finally { connection.disconnect() }
+            } catch (e: Exception) { message = "Online lyrics unavailable" }
+            if (parsed.isEmpty() && smbContext != null) {
                 try {
                     val path = track.path.substringBeforeLast('.', track.path) + ".lrc"
                     val file = SmbFile(path, smbContext)
@@ -1333,93 +1347,14 @@ class MainActivity : AppCompatActivity() {
                         parsed = SmbFileInputStream(file).bufferedReader(Charsets.UTF_8).use { parseLrcText(it.readText()) }
                         if (parsed.isNotEmpty()) message = "Using local LRC file"
                     }
-                } catch (e: Exception) {
-                    android.util.Log.w("RedWaveLyrics", "Local LRC lookup failed", e)
-                }
+                } catch (_: Exception) {}
             }
-
-            if (parsed.isEmpty()) try {
-                val encodedTitle = java.net.URLEncoder.encode(track.title.trim(), "UTF-8")
-                val usefulArtist = track.artist.trim().takeUnless { it.isBlank() || it.equals("Unknown Artist", true) }.orEmpty()
-                val encodedArtist = java.net.URLEncoder.encode(usefulArtist, "UTF-8")
-                val encodedAlbum = java.net.URLEncoder.encode(track.album.trim(), "UTF-8")
-                val durationSeconds = if (playingTrack?.path == track.path && player.duration > 0) (player.duration / 1000L).toInt() else 0
-
-                fun requestJson(url: String): org.json.JSONObject? {
-                    val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
-                    connection.connectTimeout = 10000
-                    connection.readTimeout = 10000
-                    connection.requestMethod = "GET"
-                    connection.setRequestProperty("Accept", "application/json")
-                    connection.setRequestProperty("User-Agent", "RedWaveTV/0.1.0 (https://github.com/MattTheTekie/redwavetv)")
-                    return try {
-                        if (connection.responseCode == 200) org.json.JSONObject(connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }) else null
-                    } finally { connection.disconnect() }
-                }
-
-                fun parseRecord(json: org.json.JSONObject): List<LyricLine> {
-                    val synced = json.optString("syncedLyrics", "").takeUnless { it == "null" }.orEmpty()
-                    if (synced.isNotBlank()) return parseLrcText(synced)
-                    val plain = json.optString("plainLyrics", "").takeUnless { it == "null" }.orEmpty()
-                    return plain.lineSequence().filter { it.isNotBlank() }.mapIndexed { index, line ->
-                        LyricLine(index * 4500L, line.trim())
-                    }.toList()
-                }
-
-                // First try LRCLIB's signature endpoint. Album and duration improve match precision.
-                val signature = StringBuilder("https://lrclib.net/api/get?artist_name=$encodedArtist&track_name=$encodedTitle")
-                if (track.album.isNotBlank()) signature.append("&album_name=$encodedAlbum")
-                if (durationSeconds in 1..3600) signature.append("&duration=$durationSeconds")
-                val exact = requestJson(signature.toString())
-                if (exact != null) parsed = parseRecord(exact)
-
-                // If strict signature matching misses (common with album tags/remasters),
-                // search candidates and choose the closest title/artist/album match.
-                if (parsed.isEmpty()) {
-                    val query = "https://lrclib.net/api/search?track_name=$encodedTitle" +
-                        (if (usefulArtist.isNotBlank()) "&artist_name=$encodedArtist" else "") +
-                        (if (track.album.isNotBlank()) "&album_name=$encodedAlbum" else "")
-                    val connection = java.net.URL(query).openConnection() as java.net.HttpURLConnection
-                    connection.connectTimeout = 10000
-                    connection.readTimeout = 10000
-                    connection.setRequestProperty("Accept", "application/json")
-                    connection.setRequestProperty("User-Agent", "RedWaveTV/0.1.0 (https://github.com/MattTheTekie/redwavetv)")
-                    val candidates = try {
-                        if (connection.responseCode == 200) org.json.JSONArray(connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }) else org.json.JSONArray()
-                    } finally { connection.disconnect() }
-                    val wantedTitle = track.title.trim().lowercase()
-                    val wantedArtist = usefulArtist.lowercase()
-                    val wantedAlbum = track.album.trim().lowercase()
-                    var best: org.json.JSONObject? = null
-                    var bestScore = -1
-                    for (index in 0 until candidates.length()) {
-                        val candidate = candidates.optJSONObject(index) ?: continue
-                        val title = candidate.optString("trackName", candidate.optString("name", "")).trim().lowercase()
-                        val artist = candidate.optString("artistName", "").trim().lowercase()
-                        val album = candidate.optString("albumName", "").trim().lowercase()
-                        var score = 0
-                        if (title == wantedTitle) score += 4 else if (title.contains(wantedTitle) || wantedTitle.contains(title)) score += 1
-                        if (artist == wantedArtist) score += 4 else if (artist.contains(wantedArtist) || wantedArtist.contains(artist)) score += 1
-                        if (wantedAlbum.isNotBlank() && album == wantedAlbum) score += 2
-                        if (durationSeconds > 0 && candidate.optInt("duration", 0) in (durationSeconds - 2)..(durationSeconds + 2)) score += 3
-                        if (score > bestScore) { bestScore = score; best = candidate }
-                    }
-                    if (best != null && bestScore >= 6) parsed = parseRecord(best!!)
-                }
-                message = if (parsed.isEmpty()) "No matching online lyrics found" else "Lyrics from LRCLIB"
-            } catch (e: Exception) {
-                android.util.Log.w("RedWaveLyrics", "Online lyrics lookup failed for ${track.title}", e)
-                message = "Online lyrics unavailable"
-            }
-
+            currentLyrics = parsed
+            lyricsStatus = if (parsed.isEmpty()) message.ifBlank { "Lyrics not found" } else message.ifBlank { "Lyrics loaded" }
             runOnUiThread {
-                // Do not let a slow response for the previous song replace the current song's lyrics.
-                if (requestGeneration == lyricsRequestGeneration && (playingTrack?.path == track.path || (playingTrack == null && currentScreen == "LYRICS"))) {
-                    currentLyrics = parsed
-                    lyricsStatus = if (parsed.isEmpty()) message.ifBlank { "Lyrics not found" } else message
+                if (playingTrack?.path == track.path) {
                     if (currentScreen == "LYRICS") showLyrics() else if (currentScreen == "PLAYER") showPlayer()
                 }
-                if (lyricsLoadingPath == track.path) lyricsLoadingPath = ""
             }
         }
     }
