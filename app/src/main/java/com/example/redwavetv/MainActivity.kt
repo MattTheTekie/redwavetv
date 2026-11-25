@@ -882,7 +882,7 @@ class MainActivity : AppCompatActivity() {
                 if (startScan) performScan(base, ctx) else {
                     isScanning = false
                     scanStatus = "Connected • ready to browse"
-                    runOnUiThread { updateStatus(); showFolders() }
+                    runOnUiThread { updateStatus(); showHome() }
                 }
             } catch (e: Exception) {
                 isScanning = false
@@ -1028,10 +1028,10 @@ class MainActivity : AppCompatActivity() {
     private fun playTrack(track: Track, queue: List<Track>? = null, folderQueue: Boolean = false) {
         try {
             val ctx = smbContext ?: throw IllegalStateException("Connect to your SMB share first")
-            if (queue != null) {
+            if (queue != null && folderQueue) {
                 playbackQueue = queue
-                queueIsFolder = folderQueue
-            } else {
+                queueIsFolder = true
+            } else if (queue !== playbackQueue) {
                 val random = try { libraryStore.loadRandomTracks(300, track.path) } catch (_: Exception) { emptyList() }
                 playbackQueue = listOf(track) + random
                 queueIsFolder = false
