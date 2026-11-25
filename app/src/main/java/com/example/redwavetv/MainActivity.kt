@@ -180,6 +180,21 @@ class MainActivity : AppCompatActivity() {
             addView(content)
         }
         root.addView(contentScroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        contentScroll.viewTreeObserver.addOnGlobalFocusChangeListener { _, focused ->
+            if (focused != null && isViewInside(contentScroll, focused)) {
+                contentScroll.post {
+                    val rect = android.graphics.Rect()
+                    focused.getDrawingRect(rect)
+                    contentScroll.offsetDescendantRectToMyCoords(focused, rect)
+                    val topEdge = contentScroll.scrollY
+                    val bottomEdge = topEdge + contentScroll.height
+                    when {
+                        rect.bottom > bottomEdge -> contentScroll.smoothScrollBy(0, rect.bottom - bottomEdge + 20)
+                        rect.top < topEdge -> contentScroll.smoothScrollBy(0, rect.top - topEdge - 20)
+                    }
+                }
+            }
+        }
         bottomPlayer = LinearLayout(this).apply { id = View.generateViewId(); orientation = LinearLayout.VERTICAL; setPadding(14, 6, 14, 6); setBackgroundColor(0xFF171A22.toInt()); descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS }
         root.addView(bottomPlayer, LinearLayout.LayoutParams(-1, 66))
         setContentView(root)
@@ -212,6 +227,15 @@ class MainActivity : AppCompatActivity() {
         content.addView(button("BROWSE FOLDERS", false) { showFolders() }, LinearLayout.LayoutParams(-1, 48))
         addNowPlaying()
         focusContent()
+    }
+
+    private fun isViewInside(parent: ViewGroup, child: View): Boolean {
+        var current: View? = child
+        while (current != null) {
+            if (current === parent) return true
+            current = current.parent as? View
+        }
+        return false
     }
 
     private fun focusContent() {
@@ -352,7 +376,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 val art = ImageView(this).apply {
                     scaleType = ImageView.ScaleType.CENTER_CROP
-                    background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF713047.toInt(), 0xFF242B48.toInt())).apply { cornerRadius = 9f }
+                    background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF65151D.toInt(), 0xFF242B48.toInt())).apply { cornerRadius = 9f }
                     setImageDrawable(GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF713047.toInt(), 0xFF242B48.toInt())).apply { cornerRadius = 9f })
                 }
                 card.addView(art, LinearLayout.LayoutParams(-1, 116))
@@ -1284,7 +1308,7 @@ class MainActivity : AppCompatActivity() {
                 canvas.drawCircle(cx, cy, radius * (0.48f + i * 0.047f), stroke)
             }
             canvas.restoreToCount(save)
-            fill.color = 0xFFB8324B.toInt()
+            fill.color = 0xFFB00020.toInt()
             canvas.drawCircle(cx, cy, radius * 0.34f, fill)
             if (artwork != null && !artwork.isRecycled) {
                 val artRadius = radius * 0.30f
