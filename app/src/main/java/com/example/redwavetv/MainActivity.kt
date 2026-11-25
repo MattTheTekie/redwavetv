@@ -314,11 +314,11 @@ class MainActivity : AppCompatActivity() {
             background = rounded(ORANGE, 10)
             setTextColor(0xFFFFF4E8.toInt())
             setOnFocusChangeListener { view, focused ->
-                view.background = rounded(if (focused) 0xFFF08A24.toInt() else 0xFFD97706.toInt(), 12)
+                view.background = rounded(if (focused) 0xFFE07816.toInt() else 0xFFC45B08.toInt(), 12)
                 (view as TextView).setTextColor(0xFFFFF4E8.toInt())
             }
         }
-        openLibrary.background = rounded(0xFFD97706.toInt(), 12)
+        openLibrary.background = rounded(0xFFC45B08.toInt(), 12)
         heroCopy.addView(openLibrary, LinearLayout.LayoutParams(228, 54).apply { topMargin = 12 })
         hero.addView(heroCopy, LinearLayout.LayoutParams(0, -2, 1f))
         hero.addView(label("♫", 58, 0xFFFF454F.toInt(), true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(112, 112))
@@ -536,13 +536,27 @@ class MainActivity : AppCompatActivity() {
         updateNavigation()
         content.removeAllViews()
         content.addView(label("All tracks", 29, WHITE, true), LinearLayout.LayoutParams(-1, 58))
-        content.addView(label(safeTrackCount().toString() + " tracks indexed • showing first " + tracks.size, 13, MUTED), LinearLayout.LayoutParams(-1, 34))
-        val page = safeLoadTracks(limit = 100)
+        val indexed = safeTrackCount()
+        content.addView(label("$indexed tracks indexed • showing library page 1", 13, MUTED), LinearLayout.LayoutParams(-1, 34))
+        var page = safeLoadTracks(limit = 100)
+        if (page.isEmpty() && indexed > 0L) {
+            page = try { libraryStore.loadTracks(limit = 100, offset = 0) } catch (e: Exception) {
+                android.util.Log.e("RedWaveLibrary", "Could not load indexed tracks", e)
+                emptyList()
+            }
+        }
         if (page.isEmpty()) {
-            showEmpty()
             val summary = try { libraryStore.scanSummary() } catch (_: Exception) { null }
-            content.addView(label("Database: ${safeTrackCount()} indexed tracks" + (summary?.let { " • $it" } ?: " • no completed scan recorded"), 12, ORANGE), LinearLayout.LayoutParams(-1, -2).apply { topMargin = 8 })
-            if (smbContext != null) content.addView(button("RESCAN LIBRARY", true) { scanShare() }, LinearLayout.LayoutParams(220, 48))
+            val empty = panel()
+            empty.addView(label(if (indexed > 0L) "Tracks are indexed, but could not be loaded" else "No tracks indexed yet", 19, WHITE, true))
+            empty.addView(label(if (indexed > 0L) "The database reports $indexed tracks. Try refreshing the library; see scan details below if the list remains empty." else "Connect to your SMB share and scan your music folders.", 13, MUTED))
+            content.addView(empty, LinearLayout.LayoutParams(-1, 120).apply { topMargin = 12 })
+            content.addView(label("Database: $indexed tracks" + (summary?.let { " • $it" } ?: " • no scan record"), 12, ORANGE), LinearLayout.LayoutParams(-1, -2).apply { topMargin = 8 })
+            content.addView(button("REFRESH LIBRARY", true) { tracks.clear(); tracks.addAll(safeLoadTracks(100)); showQueue() }, LinearLayout.LayoutParams(220, 48))
+            if (smbContext != null && indexed == 0L) content.addView(button("RESCAN LIBRARY", false) { scanShare() }, LinearLayout.LayoutParams(220, 48))
+        } else {
+            tracks.clear()
+            tracks.addAll(page)
         }
         page.forEach { addTrackRow(it, page) }
         if (safeTrackCount() > page.size) content.addView(button("LOAD NEXT 100", false) { showQueuePage(100) }, LinearLayout.LayoutParams(220, 48))
@@ -872,7 +886,11 @@ class MainActivity : AppCompatActivity() {
         controls.addView(playerToggle, LinearLayout.LayoutParams(150, 54).apply { leftMargin = 12; rightMargin = 12 })
         controls.addView(button("NEXT", false) { playNext() }, LinearLayout.LayoutParams(120, 54))
         content.addView(controls, LinearLayout.LayoutParams(-1, 62))
-        content.addView(button("OPEN LYRICS", false) { showLyrics() }, LinearLayout.LayoutParams(210, 40).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = 4 })
+        content.addView(button("OPEN LYRICS", false) { showLyrics() }.apply {
+            textSize = 11f
+            setPadding(6, 4, 6, 4)
+            isSingleLine = true
+        }, LinearLayout.LayoutParams(164, 34).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = 2 })
     }
 
     private fun updatePlayerLyricPreview() {
