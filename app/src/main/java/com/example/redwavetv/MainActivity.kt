@@ -83,6 +83,7 @@ class MainActivity : AppCompatActivity() {
     private var lyricsStatus = "Choose a track to look for an .lrc file"
     private var lyricsLoadingPath = ""
     private var playerLyricLine: TextView? = null
+    private var playerLyricViews: List<TextView> = emptyList()
     private val searchExecutor = Executors.newSingleThreadExecutor()
     private val searchHandler = Handler(Looper.getMainLooper())
     private var searchGeneration = 0
@@ -103,6 +104,7 @@ class MainActivity : AppCompatActivity() {
         libraryStore = LibraryStore(this)
         buildShell()
         try { tracks.addAll(libraryStore.loadTracks(limit = 100)) } catch (_: Exception) { scanStatus = "Library database unavailable" }
+        try { playingTrack = libraryStore.loadRecent(1).firstOrNull() } catch (_: Exception) { }
         showHome()
         try { restoreSavedShare() } catch (_: Exception) { scanStatus = "Saved connection needs attention"; updateStatus() }
     }
@@ -174,7 +176,11 @@ class MainActivity : AppCompatActivity() {
         scan.addView(label(libraryStore.scanSummary() ?: "No scan has been run yet", 14, WHITE))
         val scanButton = button(if (isScanning) "SCAN IN PROGRESS" else "SCAN / RESCAN LIBRARY", false) { if (!isScanning) scanShare() }
         scanButton.background = rounded(ORANGE, 10)
-        scanButton.setOnFocusChangeListener { view, focused -> view.background = rounded(if (focused) ORANGE_HI else ORANGE, 10) }
+        scanButton.setTextColor(0xFF17120C.toInt())
+        scanButton.setOnFocusChangeListener { view, focused ->
+            view.background = rounded(if (focused) ORANGE_HI else ORANGE, 10)
+            (view as TextView).setTextColor(0xFF17120C.toInt())
+        }
         scan.addView(scanButton, LinearLayout.LayoutParams(-1, 42).apply { topMargin = 8 })
         content.addView(scan, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 10 })
         content.addView(button("BROWSE FOLDERS", false) { showFolders() }, LinearLayout.LayoutParams(-1, 48))
@@ -242,9 +248,13 @@ class MainActivity : AppCompatActivity() {
         val heroCopy = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         heroCopy.addView(label("ALL YOUR MUSIC.\nONE BEAUTIFUL LIBRARY.", 25, WHITE, true), LinearLayout.LayoutParams(-1, 78))
         heroCopy.addView(label(safeTrackCount().toString() + " songs indexed  ·  browse folders anytime", 13, 0xFFE2D9E0.toInt()))
-        heroCopy.addView(button(if (smbContext == null) "OPEN SETTINGS" else "OPEN LIBRARY", true) {
+        val openLibrary = button(if (smbContext == null) "OPEN SETTINGS" else "OPEN LIBRARY", false) {
             if (smbContext != null) showQueue() else showSettings()
-        }, LinearLayout.LayoutParams(190, 40).apply { topMargin = 12 })
+        }.apply {
+            background = rounded(ORANGE, 10)
+            setOnFocusChangeListener { view, focused -> view.background = rounded(if (focused) ORANGE_HI else ORANGE, 10) }
+        }
+        heroCopy.addView(openLibrary, LinearLayout.LayoutParams(190, 40).apply { topMargin = 12 })
         hero.addView(heroCopy, LinearLayout.LayoutParams(0, -2, 1f))
         hero.addView(label("♫", 58, 0xFFFFA4B5.toInt(), true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(112, 112))
         content.addView(hero, LinearLayout.LayoutParams(-1, 172).apply { topMargin = 10; bottomMargin = 18 })
@@ -646,8 +656,7 @@ class MainActivity : AppCompatActivity() {
                 if (bar != null && player.duration > 0 && !bar.isPressed) {
                     bar.progress = ((player.currentPosition.toDouble() / player.duration.toDouble()) * 1000).toInt().coerceIn(0, 1000)
                 }
-                val line = currentLyrics.lastOrNull { it.timeMs <= player.currentPosition }?.text
-                playerLyricLine?.text = line ?: if (currentLyrics.isEmpty()) lyricsStatus else "♪"
+                updatePlayerLyricPreview()
                 progressHandler.postDelayed(this, 500)
             }
         }
@@ -720,9 +729,43 @@ class MainActivity : AppCompatActivity() {
         controls.addView(button(if (player.isPlaying) "Ⅱ  PAUSE" else "▶  PLAY", true) { if (player.isPlaying) player.pause() else player.play(); showPlayer() }, LinearLayout.LayoutParams(150, 54).apply { leftMargin = 12; rightMargin = 12 })
         controls.addView(button("NEXT", false) { playNext() }, LinearLayout.LayoutParams(120, 54))
         content.addView(controls, LinearLayout.LayoutParams(-1, 62))
-        playerLyricLine = label(currentLyrics.lastOrNull { it.timeMs <= player.currentPosition }?.text ?: if (currentLyrics.isEmpty()) lyricsStatus else "♪", 16, WHITE, true).apply { gravity = Gravity.CENTER; maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(18, 10, 18, 10); background = rounded(SURFACE, 10) }
-        content.addView(playerLyricLine, LinearLayout.LayoutParams(-1, 58).apply { topMargin = 8; bottomMargin = 4 })
+        val lyricPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(16, 8, 16, 8)
+            background = rounded(0xCC171A22.toInt(), 12)
+        }
+        playerLyricViews = (0..2).map { index ->
+            label("", if (index == 1) 17 else 13, if (index == 1) WHITE else MUTED, index == 1).apply {
+                gravity = Gravity.CENTER
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setPadding(4, 3, 4, 3)
+            }.also { lyricPanel.addView(it, LinearLayout.LayoutParams(-1, 28)) }
+        }
+        playerLyricLine = playerLyricViews.getOrNull(1)
+        updatePlayerLyricPreview()
+        content.addView(lyricPanel, LinearLayout.LayoutParams(-1, 104).apply { topMargin = 8; bottomMargin = 4 })
         content.addView(button("OPEN LYRICS", false) { showLyrics() }, LinearLayout.LayoutParams(210, 40).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = 4 })
+    }
+
+    private fun updatePlayerLyricPreview() {
+        if (playerLyricViews.isEmpty()) return
+        if (currentLyrics.isEmpty()) {
+            playerLyricViews.forEachIndexed { index, view ->
+                view.text = if (index == 1) lyricsStatus else ""
+                view.setTextColor(if (index == 1) WHITE else MUTED)
+            }
+            return
+        }
+        val active = currentLyrics.indexOfLast { it.timeMs <= player.currentPosition }.coerceAtLeast(0)
+        playerLyricViews.forEachIndexed { offset, view ->
+            val lyric = currentLyrics.getOrNull(active + offset - 1)
+            view.text = lyric?.text ?: ""
+            view.setTextColor(if (offset == 1) ORANGE else MUTED)
+            view.textSize = if (offset == 1) 17f else 13f
+            view.setTypeface(Typeface.DEFAULT, if (offset == 1) Typeface.BOLD else Typeface.NORMAL)
+        }
     }
 
     private fun showLyrics() {
