@@ -183,9 +183,17 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         readableDatabase.rawQuery("SELECT COUNT(*) FROM tracks", null).use { it.moveToFirst(); return it.getLong(0) }
     }
     fun loadTracks(limit: Int = 100, offset: Int = 0): List<Track> {
-        val result = ArrayList<Track>(limit.coerceAtMost(5000))
-        readableDatabase.query("tracks", arrayOf("path","title","folder","artist","album","artwork"), null, null, null, null, "title COLLATE NOCASE", "$limit OFFSET $offset").use { cursor ->
-            while (cursor.moveToNext()) result.add(Track(cursor.getString(1),cursor.getString(0),cursor.getString(2),cursor.getString(3),cursor.getString(4),cursor.getString(5)))
+        val safeLimit = limit.coerceIn(1, 5000)
+        val safeOffset = offset.coerceAtLeast(0)
+        val result = ArrayList<Track>(safeLimit.coerceAtMost(500))
+        // Explicit SQL pagination is consistent across older Android SQLite versions.
+        readableDatabase.rawQuery(
+            "SELECT title,path,folder,artist,album,artwork FROM tracks ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?",
+            arrayOf(safeLimit.toString(), safeOffset.toString())
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                result.add(Track(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3), cursor.getString(4), cursor.getString(5)))
+            }
         }
         return result
     }
