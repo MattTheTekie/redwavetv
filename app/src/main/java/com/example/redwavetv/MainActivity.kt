@@ -414,10 +414,10 @@ class MainActivity : AppCompatActivity() {
                     sortedPage.forEach { file ->
                         val name = file.getName().trimEnd('/')
                         if (file.isDirectory) {
-                            content.addView(button("▤   $name   ›", false) { showRemoteFolder(file.getURL().toString()) }, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 6 })
+                            content.addView(button("▤   $name   ›", false) { showRemoteFolder(file.getLocator().getCanonicalURL()) }, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 6 })
                         } else {
                             content.addView(button("♫   " + name.substringBeforeLast('.'), false) {
-                                playTrack(Track(name.substringBeforeLast('.'), file.getURL().toString(), file.getParent() ?: path), folderQueue, true)
+                                playTrack(Track(name.substringBeforeLast('.'), file.getLocator().getCanonicalURL(), file.getLocator().getParent() ?: path), folderQueue, true)
                             }, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 6 })
                         }
                     }
