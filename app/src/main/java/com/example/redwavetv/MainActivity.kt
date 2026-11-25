@@ -101,6 +101,19 @@ class MainActivity : AppCompatActivity() {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == com.google.android.exoplayer2.Player.STATE_ENDED && repeatMode != 1) playNext()
             }
+            override fun onPlayerError(error: com.google.android.exoplayer2.PlaybackException) {
+                val trackName = playingTrack?.title ?: "Track"
+                android.util.Log.e("RedWavePlayer", "Playback failed for $trackName: ${error.errorCodeName}", error)
+                val detail = when (error.errorCode) {
+                    com.google.android.exoplayer2.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+                    com.google.android.exoplayer2.PlaybackException.ERROR_CODE_DECODING_FAILED,
+                    com.google.android.exoplayer2.PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+                    com.google.android.exoplayer2.PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES ->
+                        "Audio format not supported: $trackName"
+                    else -> "Can't play $trackName: ${error.errorCodeName}"
+                }
+                runOnUiThread { toast(detail) }
+            }
         })
         libraryStore = LibraryStore(this)
         buildShell()
@@ -1109,6 +1122,18 @@ class MainActivity : AppCompatActivity() {
         playTrack(playbackQueue[next], playbackQueue, queueIsFolder)
     }
 
+    private fun audioMimeType(path: String): String? = when (path.substringBefore('?').substringAfterLast('.', "").lowercase()) {
+        "mp3" -> "audio/mpeg"
+        "flac" -> "audio/flac"
+        "m4a", "m4b", "alac" -> "audio/mp4"
+        "aac" -> "audio/aac"
+        "ogg", "opus" -> "audio/ogg"
+        "wav" -> "audio/wav"
+        "wma" -> "audio/x-ms-wma"
+        "aiff", "aif" -> "audio/aiff"
+        else -> null
+    }
+
     private fun playTrack(track: Track, queue: List<Track>? = null, folderQueue: Boolean = false) {
         try {
             val ctx = smbContext ?: throw IllegalStateException("Connect to your SMB share first")
@@ -1138,7 +1163,11 @@ class MainActivity : AppCompatActivity() {
             playerLyricLine = null
             lyricsStatus = "Choose a track to look for an .lrc file"
             val factory = DataSource.Factory { SmbStreamDataSource(ctx) }
-            val source = ProgressiveMediaSource.Factory(factory).createMediaSource(MediaItem.fromUri(track.path))
+            val mediaItem = MediaItem.Builder()
+                .setUri(track.path)
+                .setMimeType(audioMimeType(track.path))
+                .build()
+            val source = ProgressiveMediaSource.Factory(factory).createMediaSource(mediaItem)
             player.setMediaSource(source)
             player.prepare()
             player.play()
