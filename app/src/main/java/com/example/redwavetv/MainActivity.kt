@@ -668,6 +668,7 @@ class MainActivity : AppCompatActivity() {
         updateNavigation()
         bottomPlayer.visibility = View.GONE
         content.removeAllViews()
+        content.setPadding(24, 8, 24, 14)
         val track = playingTrack ?: tracks.getOrNull(currentTrack)
         if (track != null && currentLyrics.isEmpty() && lyricsLoadingPath != track.path) loadLyrics(track, false)
         val modes = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
@@ -686,15 +687,30 @@ class MainActivity : AppCompatActivity() {
         val availableWidthDp = (resources.displayMetrics.widthPixels / density).toInt() - 72
         val availableHeightDp = (resources.displayMetrics.heightPixels / density).toInt() - 150
         val coverSize = minOf(availableWidthDp * 0.42f, availableHeightDp * 0.43f).toInt().coerceIn(150, 300)
-        content.addView(art, LinearLayout.LayoutParams(coverSize, coverSize).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = 8; bottomMargin = 14 })
-        recordAnimator?.cancel()
-        art.rotation = 0f
-        if (player.isPlaying) recordAnimator = ObjectAnimator.ofFloat(art, View.ROTATION, 0f, 360f).apply {
-            duration = 18000L
-            repeatCount = ValueAnimator.INFINITE
-            interpolator = LinearInterpolator()
-            start()
+        val stage = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(8, 4, 8, 4)
         }
+        val lyricPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(14, 12, 14, 12)
+            background = rounded(0xCC171A22.toInt(), 12)
+        }
+        playerLyricViews = (0..2).map { index ->
+            label("", if (index == 1) 17 else 13, if (index == 1) WHITE else MUTED, index == 1).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                maxLines = 2
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setPadding(4, 5, 4, 5)
+            }.also { lyricPanel.addView(it, LinearLayout.LayoutParams(-1, 0, 1f)) }
+        }
+        playerLyricLine = playerLyricViews.getOrNull(1)
+        updatePlayerLyricPreview()
+        stage.addView(lyricPanel, LinearLayout.LayoutParams(0, coverSize, 1f).apply { rightMargin = 14 })
+        stage.addView(art, LinearLayout.LayoutParams(coverSize, coverSize))
+        content.addView(stage, LinearLayout.LayoutParams(-1, coverSize + 12).apply { topMargin = 8; bottomMargin = 10 })
         content.addView(label(track?.title ?: "Nothing playing", 22, WHITE, true).apply { gravity = Gravity.CENTER; maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 6 })
         content.addView(label(track?.artist ?: "Choose a song from your library", 15, MUTED).apply { gravity = Gravity.CENTER; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }, LinearLayout.LayoutParams(-1, 26))
         content.addView(label(track?.album ?: track?.folder?.trimEnd('/')?.substringAfterLast('/') ?: "", 13, MUTED).apply { gravity = Gravity.CENTER; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }, LinearLayout.LayoutParams(-1, 24))
@@ -730,23 +746,6 @@ class MainActivity : AppCompatActivity() {
         controls.addView(button(if (player.isPlaying) "Ⅱ  PAUSE" else "▶  PLAY", true) { if (player.isPlaying) player.pause() else player.play(); showPlayer() }, LinearLayout.LayoutParams(150, 54).apply { leftMargin = 12; rightMargin = 12 })
         controls.addView(button("NEXT", false) { playNext() }, LinearLayout.LayoutParams(120, 54))
         content.addView(controls, LinearLayout.LayoutParams(-1, 62))
-        val lyricPanel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(16, 8, 16, 8)
-            background = rounded(0xCC171A22.toInt(), 12)
-        }
-        playerLyricViews = (0..2).map { index ->
-            label("", if (index == 1) 17 else 13, if (index == 1) WHITE else MUTED, index == 1).apply {
-                gravity = Gravity.CENTER
-                maxLines = 1
-                ellipsize = android.text.TextUtils.TruncateAt.END
-                setPadding(4, 3, 4, 3)
-            }.also { lyricPanel.addView(it, LinearLayout.LayoutParams(-1, 28)) }
-        }
-        playerLyricLine = playerLyricViews.getOrNull(1)
-        updatePlayerLyricPreview()
-        content.addView(lyricPanel, LinearLayout.LayoutParams(-1, 104).apply { topMargin = 8; bottomMargin = 4 })
         content.addView(button("OPEN LYRICS", false) { showLyrics() }, LinearLayout.LayoutParams(210, 40).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = 4 })
     }
 
@@ -1163,6 +1162,8 @@ class MainActivity : AppCompatActivity() {
     private inner class VinylRecordView(context: android.content.Context, artworkPath: String?) : View(context) {
         private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
         private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1.5f }
+        private var rotationDegrees = 0f
+        private var spinAnimator: ValueAnimator? = null
         private val artwork = artworkPath?.takeIf { it.isNotBlank() }?.let {
             try {
                 val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -1172,6 +1173,25 @@ class MainActivity : AppCompatActivity() {
                 BitmapFactory.decodeFile(it, options)
             } catch (_: Exception) { null }
         }
+
+        override fun onAttachedToWindow() {
+            super.onAttachedToWindow()
+            spinAnimator?.cancel()
+            spinAnimator = ValueAnimator.ofFloat(0f, 360f).apply {
+                duration = 18000L
+                repeatCount = ValueAnimator.INFINITE
+                interpolator = LinearInterpolator()
+                addUpdateListener { rotationDegrees = it.animatedValue as Float; invalidate() }
+                start()
+            }
+        }
+
+        override fun onDetachedFromWindow() {
+            spinAnimator?.cancel()
+            spinAnimator = null
+            super.onDetachedFromWindow()
+        }
+
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             val cx = width / 2f
@@ -1179,23 +1199,28 @@ class MainActivity : AppCompatActivity() {
             val radius = minOf(width, height) * 0.47f
             fill.color = 0xFF090A0D.toInt()
             canvas.drawCircle(cx, cy, radius, fill)
-            for (i in 1..9) {
+            // Rotate only the vinyl grooves. The centre label/artwork stays perfectly still,
+            // avoiding the logo wobble/fade caused by rotating the entire ImageView/View.
+            val save = canvas.save()
+            canvas.rotate(rotationDegrees, cx, cy)
+            for (i in 1..10) {
                 stroke.color = if (i % 3 == 0) 0xFF555861.toInt() else 0xFF292C33.toInt()
                 stroke.strokeWidth = if (i % 3 == 0) 2f else 1f
-                canvas.drawCircle(cx, cy, radius * (0.52f + i * 0.045f), stroke)
+                canvas.drawCircle(cx, cy, radius * (0.48f + i * 0.047f), stroke)
             }
+            canvas.restoreToCount(save)
             fill.color = 0xFFB8324B.toInt()
             canvas.drawCircle(cx, cy, radius * 0.34f, fill)
             if (artwork != null && !artwork.isRecycled) {
-                val save = canvas.save()
                 val artRadius = radius * 0.30f
                 val clip = android.graphics.Path().apply { addCircle(cx, cy, artRadius, android.graphics.Path.Direction.CW) }
+                val artSave = canvas.save()
                 canvas.clipPath(clip)
                 val side = minOf(artwork.width, artwork.height)
                 val src = android.graphics.Rect((artwork.width-side)/2, (artwork.height-side)/2, (artwork.width+side)/2, (artwork.height+side)/2)
                 val dst = android.graphics.RectF(cx-artRadius, cy-artRadius, cx+artRadius, cy+artRadius)
                 canvas.drawBitmap(artwork, src, dst, fill)
-                canvas.restoreToCount(save)
+                canvas.restoreToCount(artSave)
             }
             fill.color = 0xFFFFB05A.toInt()
             canvas.drawCircle(cx, cy, radius * 0.055f, fill)
