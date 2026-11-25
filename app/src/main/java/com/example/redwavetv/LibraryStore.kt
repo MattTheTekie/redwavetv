@@ -28,7 +28,7 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
             db.execSQL("CREATE TABLE IF NOT EXISTS play_history (path TEXT PRIMARY KEY, played_at INTEGER NOT NULL)")
         }
     }
-    override fun onConfigure(db: SQLiteDatabase) { super.onConfigure(db); db.execSQL("PRAGMA cache_size=-2048"); db.execSQL("PRAGMA temp_store=FILE"); db.execSQL("PRAGMA mmap_size=0") }
+    override fun onConfigure(db: SQLiteDatabase) {\n        super.onConfigure(db)\n        // PRAGMA assignments return result rows on Android SQLite; execSQL rejects them.\n        db.rawQuery("PRAGMA cache_size=-2048", null).use { }\n        db.rawQuery("PRAGMA temp_store=FILE", null).use { }\n        db.rawQuery("PRAGMA mmap_size=0", null).use { }\n    }
     @Synchronized fun startOrResumeScan(base: String): Boolean {
         val db = writableDatabase
         val previous = db.rawQuery("SELECT base,status FROM scan_state WHERE id=1", null).use { c -> if (c.moveToFirst()) Pair(c.getString(0), c.getString(1)) else null }
