@@ -687,7 +687,7 @@ class MainActivity : AppCompatActivity() {
         controls.addView(button(if (player.isPlaying) "Ⅱ  PAUSE" else "▶  PLAY", true) { if (player.isPlaying) player.pause() else player.play(); showPlayer() }, LinearLayout.LayoutParams(150, 54).apply { leftMargin = 12; rightMargin = 12 })
         controls.addView(button("NEXT", false) { playNext() }, LinearLayout.LayoutParams(120, 54))
         content.addView(controls, LinearLayout.LayoutParams(-1, 62))
-        content.addView(button("OPEN LYRICS", false) { showLyrics() }, LinearLayout.LayoutParams(-1, 54).apply { topMargin = 14 })
+        content.addView(button("OPEN LYRICS", false) { showLyrics() }, LinearLayout.LayoutParams(210, 40).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = 8 })
     }
 
     private fun showLyrics() {
@@ -708,7 +708,6 @@ class MainActivity : AppCompatActivity() {
             content.addView(empty, LinearLayout.LayoutParams(-1, 140).apply { topMargin = 18 })
             return
         }
-        val lyricScroll = ScrollView(this).apply { isFillViewport = true; isFocusable = false }
         val lyricColumn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; setPadding(18, 12, 18, 28) }
         if (currentLyrics.isEmpty()) {
             lyricColumn.addView(label(lyricsStatus, 15, MUTED), LinearLayout.LayoutParams(-1, 58))
@@ -721,8 +720,7 @@ class MainActivity : AppCompatActivity() {
                 lyricColumn.addView(row, LinearLayout.LayoutParams(-1, -2))
             }
         }
-        lyricScroll.addView(lyricColumn)
-        content.addView(lyricScroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        content.addView(lyricColumn, LinearLayout.LayoutParams(-1, -2))
         lyricsHandler.removeCallbacksAndMessages(null)
         val updater = object : Runnable {
             override fun run() {
@@ -731,13 +729,6 @@ class MainActivity : AppCompatActivity() {
                 for (i in 0 until lyricColumn.childCount) {
                     val view = lyricColumn.getChildAt(i)
                     if (view is TextView) view.setTextColor(if (i == active) RED else MUTED)
-                }
-                if (active >= 0 && active < lyricColumn.childCount) {
-                    val activeView = lyricColumn.getChildAt(active)
-                    val rect = android.graphics.Rect()
-                    activeView.getDrawingRect(rect)
-                    lyricScroll.offsetDescendantRectToMyCoords(activeView, rect)
-                    lyricScroll.smoothScrollTo(0, (rect.top - lyricScroll.height / 3).coerceAtLeast(0))
                 }
                 lyricsHandler.postDelayed(this, 500)
             }
