@@ -752,11 +752,24 @@ class MainActivity : AppCompatActivity() {
             isClickable = false
         }
         val play = button("▶", false) { playTrack(track, queue) }.apply {
+            id = View.generateViewId()
             contentDescription = "Play ${track.title}"
             textSize = 15f
             setTextColor(WHITE)
             background = rounded(0xFF343B4A.toInt(), 18)
-            setOnFocusChangeListener { view, focused -> view.background = rounded(if (focused) RED else 0xFF343B4A.toInt(), 18) }
+            setOnFocusChangeListener { view, focused ->
+                view.background = rounded(if (focused) RED else 0xFF343B4A.toInt(), 18)
+                if (focused) songFocusScrollToFocused()
+            }
+        }
+        // Link each row's primary play control to the previous one. This gives
+        // Android TV a deterministic vertical focus path instead of letting the
+        // ScrollView steal DPAD navigation.
+        val previousRow = if (parent.childCount > 0) parent.getChildAt(parent.childCount - 1) as? ViewGroup else null
+        val previousPlay = previousRow?.getChildAt(0)
+        if (previousPlay != null && previousPlay.id != View.NO_ID) {
+            previousPlay.nextFocusDownId = play.id
+            play.nextFocusUpId = previousPlay.id
         }
         row.addView(play, LinearLayout.LayoutParams(38, 38).apply { rightMargin = 10 })
         val names = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL }
