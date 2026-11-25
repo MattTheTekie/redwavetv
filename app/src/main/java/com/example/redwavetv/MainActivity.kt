@@ -294,6 +294,21 @@ class MainActivity : AppCompatActivity() {
         }
         scan.addView(scanButton, LinearLayout.LayoutParams(-1, 42).apply { topMargin = 8 })
         content.addView(scan, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 10 })
+        val hiddenPanel = panel()
+        hiddenPanel.addView(label("HIDDEN FOLDERS", 12, ORANGE, true))
+        hiddenPanel.addView(label("Hidden folders and their subfolders are excluded from Home, Library, Search, Random, Albums and Favourites. Files are not deleted.", 12, MUTED))
+        val hiddenList = try { libraryStore.hiddenFolders() } catch (_: Exception) { emptyList() }
+        if (hiddenList.isEmpty()) hiddenPanel.addView(label("No hidden folders", 13, MUTED))
+        hiddenList.forEach { hiddenPath ->
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            row.addView(label(hiddenPath.trimEnd('/').substringAfterLast('/'), 13, WHITE), LinearLayout.LayoutParams(0, 42, 1f))
+            row.addView(button("UNHIDE", false) {
+                libraryStore.unhideFolder(hiddenPath)
+                showSettings()
+            }, LinearLayout.LayoutParams(112, 38))
+            hiddenPanel.addView(row, LinearLayout.LayoutParams(-1, 44))
+        }
+        content.addView(hiddenPanel, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 10 })
         content.addView(button("BROWSE FOLDERS", false) { showFolders() }, LinearLayout.LayoutParams(-1, 48))
         addNowPlaying()
         focusContent()
@@ -640,7 +655,15 @@ class MainActivity : AppCompatActivity() {
                     sortedPage.forEach { file ->
                         val name = file.getName().trimEnd('/')
                         if (file.isDirectory) {
-                            content.addView(button("▤   $name   ›", false) { showRemoteFolder(file.getLocator().getCanonicalURL()) }, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 6 })
+                            val folderButton = button("▤   $name   ›", false) { showRemoteFolder(file.getLocator().getCanonicalURL()) }
+                            folderButton.setOnLongClickListener {
+                                try {
+                                    libraryStore.hideFolder(file.getLocator().getCanonicalURL())
+                                    toast("Hidden from your music library: $name")
+                                } catch (e: Exception) { toast("Could not hide folder: " + (e.message ?: "database error")) }
+                                true
+                            }
+                            content.addView(folderButton, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 6 })
                         } else {
                             content.addView(button("♫   " + name.substringBeforeLast('.'), false) {
                                 playTrack(Track(name.substringBeforeLast('.'), file.getLocator().getCanonicalURL(), file.getLocator().getParent() ?: path), folderQueue, true)
@@ -1224,14 +1247,31 @@ class MainActivity : AppCompatActivity() {
         progressHandler.removeCallbacks(progressUpdater)
         if (player.duration > 0) seek.progress = ((player.currentPosition.toDouble() / player.duration.toDouble()) * 1000).toInt().coerceIn(0, 1000)
         seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {}
+            override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
+                val duration = player.duration
+                // TV remotes adjust SeekBar progress with DPAD keys, not touch gestures.
+                if (fromUser && duration > 0 && duration != C.TIME_UNSET) {
+                    player.seekTo((duration * progress / 1000).toLong().coerceIn(0L, duration))
+                }
+            }
             override fun onStartTrackingTouch(bar: SeekBar?) {}
             override fun onStopTrackingTouch(bar: SeekBar?) {
                 val duration = player.duration
-                if (duration > 0 && bar != null) player.seekTo((duration * bar.progress / 1000).toLong())
+                if (duration > 0 && duration != C.TIME_UNSET && bar != null) player.seekTo((duration * bar.progress / 1000).toLong())
             }
         })
-        content.addView(seek, LinearLayout.LayoutParams(-1, 42))
+        seek.setOnKeyListener { _, keyCode, event ->
+            if (event.action == KeyEvent.ACTION_DOWN && (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)) {
+                val duration = player.duration
+                if (duration > 0 && duration != C.TIME_UNSET) {
+                    val delta = if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) 10_000L else -10_000L
+                    player.seekTo((player.currentPosition + delta).coerceIn(0L, duration))
+                    seek.progress = ((player.currentPosition.toDouble() / duration.toDouble()) * 1000).toInt().coerceIn(0, 1000)
+                }
+                true
+            } else false
+        }
+        content.addView(seek, LinearLayout.LayoutParams(-1, 48))
         progressHandler.post(progressUpdater)
         content.addView(button(if (try { libraryStore.isFavorite(track?.path ?: "") } catch (_: Exception) { false }) "★  REMOVE FROM FAVOURITES" else "☆  ADD TO FAVOURITES", false) {
             if (track != null) {
@@ -1527,6 +1567,7 @@ class MainActivity : AppCompatActivity() {
         try {
             // Guard database setup and resume reads too; these previously ran before try/catch.
             val resumed = libraryStore.startOrResumeScan(base)
+            val hiddenFolders = libraryStore.hiddenFolders()
             val savedProgress = libraryStore.scanProgress()
             visited = if (resumed) savedProgress.first else 0L
             discovered = if (resumed) savedProgress.second else 0L
@@ -1545,7 +1586,9 @@ class MainActivity : AppCompatActivity() {
                             // jcifs-ng returns SmbResource entries. Do not force-cast them.
                             val file = resource
                             if (file.isDirectory) {
-                                if (depth < 40) libraryStore.enqueueDirectory(file.getLocator().getCanonicalURL(), depth + 1)
+                                val childPath = file.getLocator().getCanonicalURL()
+                                val isHidden = hiddenFolders.any { childPath.startsWith(it, ignoreCase = true) }
+                                if (!isHidden && depth < 40) libraryStore.enqueueDirectory(childPath, depth + 1)
                             } else {
                                 val name = file.getName().trimEnd('/')
                                 val ext = name.substringAfterLast('.', "").lowercase()
