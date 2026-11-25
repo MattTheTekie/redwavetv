@@ -44,6 +44,7 @@ import jcifs.smb.SmbFile
 import jcifs.smb.SmbFileInputStream
 import java.util.Properties
 import kotlin.concurrent.thread
+import java.util.concurrent.Executors
 
 
 private const val BG = 0xFF0B0C10.toInt()
@@ -82,6 +83,9 @@ class MainActivity : AppCompatActivity() {
     private var lyricsStatus = "Choose a track to look for an .lrc file"
     private var lyricsLoadingPath = ""
     private var playerLyricLine: TextView? = null
+    private val searchExecutor = Executors.newSingleThreadExecutor()
+    private val searchHandler = Handler(Looper.getMainLooper())
+    private var searchGeneration = 0
     private val lyricsHandler = Handler(Looper.getMainLooper())
     private val artCache = mutableMapOf<String, android.graphics.Bitmap?>()
     private lateinit var libraryStore: LibraryStore
@@ -245,13 +249,13 @@ class MainActivity : AppCompatActivity() {
         hero.addView(label("♫", 58, 0xFFFFA4B5.toInt(), true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(112, 112))
         content.addView(hero, LinearLayout.LayoutParams(-1, 172).apply { topMargin = 10; bottomMargin = 18 })
         if (isScanning) content.addView(label("Scanning network library…  " + tracks.size + " found", 13, GREEN, true), LinearLayout.LayoutParams(-1, 36))
-        val randomPicks = try { libraryStore.loadRandomTracks(12) } catch (_: Exception) { emptyList() }
-        sectionTitle("RANDOM FROM YOUR LIBRARY", "SEE ALL SONGS") { showQueue() }
-        if (randomPicks.isEmpty()) content.addView(label("Connect and scan your SMB library to get random picks here.", 13, MUTED), LinearLayout.LayoutParams(-1, 34)) else randomPicks.take(6).forEach { addTrackRow(it, randomPicks) }
         val recent = try { libraryStore.loadRecent(8) } catch (_: Exception) { emptyList() }
         val favourites = try { libraryStore.loadFavorites(8) } catch (_: Exception) { emptyList() }
         sectionTitle("RECENTLY PLAYED", "SEE ALL") { showRecents() }
         if (recent.isEmpty()) content.addView(label("Play a song and it will appear here.", 13, MUTED), LinearLayout.LayoutParams(-1, 34)) else recent.take(5).forEach { addTrackRow(it, recent) }
+        val randomPicks = try { libraryStore.loadRandomTracks(12) } catch (_: Exception) { emptyList() }
+        sectionTitle("RANDOM FROM YOUR LIBRARY", "SEE ALL SONGS") { showQueue() }
+        if (randomPicks.isEmpty()) content.addView(label("Connect and scan your SMB library to get random picks here.", 13, MUTED), LinearLayout.LayoutParams(-1, 34)) else randomPicks.take(6).forEach { addTrackRow(it, randomPicks) }
         sectionTitle("FAVOURITES", "SEE ALL") { showFavourites() }
         if (favourites.isEmpty()) content.addView(label("Save songs with the ☆ button to build your favourites.", 13, MUTED), LinearLayout.LayoutParams(-1, 34)) else favourites.take(5).forEach { addTrackRow(it, favourites) }
         val latest = safeLoadTracks(8)
@@ -438,7 +442,12 @@ class MainActivity : AppCompatActivity() {
         content.addView(label("All tracks", 29, WHITE, true), LinearLayout.LayoutParams(-1, 58))
         content.addView(label(safeTrackCount().toString() + " tracks indexed • showing first " + tracks.size, 13, MUTED), LinearLayout.LayoutParams(-1, 34))
         val page = safeLoadTracks(limit = 100)
-        if (page.isEmpty()) showEmpty()
+        if (page.isEmpty()) {
+            showEmpty()
+            val summary = try { libraryStore.scanSummary() } catch (_: Exception) { null }
+            content.addView(label("Database: ${safeTrackCount()} indexed tracks" + (summary?.let { " • $it" } ?: " • no completed scan recorded"), 12, ORANGE), LinearLayout.LayoutParams(-1, -2).apply { topMargin = 8 })
+            if (smbContext != null) content.addView(button("RESCAN LIBRARY", true) { scanShare() }, LinearLayout.LayoutParams(220, 48))
+        }
         page.forEach { addTrackRow(it, page) }
         if (safeTrackCount() > page.size) content.addView(button("LOAD NEXT 100", false) { showQueuePage(100) }, LinearLayout.LayoutParams(220, 48))
         addNowPlaying()
@@ -517,22 +526,38 @@ class MainActivity : AppCompatActivity() {
         val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(results, LinearLayout.LayoutParams(-1, -2))
         fun runSearch(value: String) {
+            searchGeneration++
+            val generation = searchGeneration
+            searchHandler.removeCallbacksAndMessages("search")
             results.removeAllViews()
             if (value.isBlank()) { results.addView(label("Type to search your indexed library.", 14, MUTED)); return }
-            val matches = try { libraryStore.searchTracks(value, 100) } catch (_: Exception) { emptyList() }
-            if (matches.isEmpty()) results.addView(label("No matching tracks.", 14, MUTED)) else matches.forEach { track ->
-                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-                row.addView(button("▶  ${track.title}  ·  ${track.artist}", false) { playTrack(track, matches) }, LinearLayout.LayoutParams(0, 54, 1f))
-                row.addView(button(if (try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }) "★" else "☆", false) {
-                    try {
-                        val saved = libraryStore.isFavorite(track.path)
-                        libraryStore.saveFavorite(track, !saved)
-                        toast(if (saved) "Removed from favourites" else "Added to favourites")
-                    } catch (e: Exception) { toast("Could not save favourite: " + (e.message ?: "database error")) }
-                    runSearch(value)
-                }, LinearLayout.LayoutParams(54, 48))
-                results.addView(row)
+            if (value.trim().length < 2) { results.addView(label("Type at least 2 characters to search.", 14, MUTED)); return }
+            results.addView(label("Searching…", 14, MUTED))
+            val task = Runnable {
+                searchExecutor.execute {
+                    val matches = try { libraryStore.searchTracks(value, 60) } catch (e: Exception) {
+                        android.util.Log.e("RedWaveSearch", "Search failed", e); emptyList()
+                    }
+                    runOnUiThread {
+                        if (generation != searchGeneration || currentScreen != "SEARCH") return@runOnUiThread
+                        results.removeAllViews()
+                        if (matches.isEmpty()) results.addView(label("No matching tracks.", 14, MUTED)) else matches.forEach { track ->
+                            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+                            row.addView(button("▶  ${track.title}  ·  ${track.artist}", false) { playTrack(track, matches) }, LinearLayout.LayoutParams(0, 54, 1f))
+                            row.addView(button(if (try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }) "★" else "☆", false) {
+                                try {
+                                    val saved = libraryStore.isFavorite(track.path)
+                                    libraryStore.saveFavorite(track, !saved)
+                                    toast(if (saved) "Removed from favourites" else "Added to favourites")
+                                } catch (e: Exception) { toast("Could not save favourite: " + (e.message ?: "database error")) }
+                                runSearch(value)
+                            }, LinearLayout.LayoutParams(54, 48))
+                            results.addView(row)
+                        }
+                    }
+                }
             }
+            searchHandler.postAtTime(task, "search", android.os.SystemClock.uptimeMillis() + 350L)
         }
         query.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -652,8 +677,10 @@ class MainActivity : AppCompatActivity() {
         val availableHeightDp = (resources.displayMetrics.heightPixels / density).toInt() - 150
         val coverSize = minOf(availableWidthDp * 0.42f, availableHeightDp * 0.43f).toInt().coerceIn(150, 300)
         content.addView(art, LinearLayout.LayoutParams(coverSize, coverSize).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = 8; bottomMargin = 14 })
-        if (player.isPlaying) ObjectAnimator.ofFloat(art, View.ROTATION, 0f, 360f).apply {
-            duration = 8000L
+        recordAnimator?.cancel()
+        art.rotation = 0f
+        if (player.isPlaying) recordAnimator = ObjectAnimator.ofFloat(art, View.ROTATION, 0f, 360f).apply {
+            duration = 18000L
             repeatCount = ValueAnimator.INFINITE
             interpolator = LinearInterpolator()
             start()
@@ -1092,7 +1119,15 @@ class MainActivity : AppCompatActivity() {
     private inner class VinylRecordView(context: android.content.Context, artworkPath: String?) : View(context) {
         private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
         private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1.5f }
-        private val artwork = artworkPath?.takeIf { it.isNotBlank() }?.let { try { BitmapFactory.decodeFile(it) } catch (_: Exception) { null } }
+        private val artwork = artworkPath?.takeIf { it.isNotBlank() }?.let {
+            try {
+                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(it, options)
+                options.inSampleSize = maxOf(1, minOf(options.outWidth, options.outHeight) / 256)
+                options.inJustDecodeBounds = false
+                BitmapFactory.decodeFile(it, options)
+            } catch (_: Exception) { null }
+        }
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             val cx = width / 2f
