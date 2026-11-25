@@ -1324,7 +1324,21 @@ class MainActivity : AppCompatActivity() {
         thread(name = "redwave-online-lyrics") {
             var parsed = emptyList<LyricLine>()
             var message = ""
-            try {
+            // Prefer the matching sidecar on the SMB share; only query LRCLIB if it has no usable lyrics.
+            if (smbContext != null) {
+                try {
+                    val path = track.path.substringBeforeLast('.', track.path) + ".lrc"
+                    val file = SmbFile(path, smbContext)
+                    if (file.exists() && file.isFile) {
+                        parsed = SmbFileInputStream(file).bufferedReader(Charsets.UTF_8).use { parseLrcText(it.readText()) }
+                        if (parsed.isNotEmpty()) message = "Using local LRC file"
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w("RedWaveLyrics", "Local LRC lookup failed", e)
+                }
+            }
+
+            if (parsed.isEmpty()) try {
                 val encodedTitle = java.net.URLEncoder.encode(track.title.trim(), "UTF-8")
                 val usefulArtist = track.artist.trim().takeUnless { it.isBlank() || it.equals("Unknown Artist", true) }.orEmpty()
                 val encodedArtist = java.net.URLEncoder.encode(usefulArtist, "UTF-8")
@@ -1374,7 +1388,7 @@ class MainActivity : AppCompatActivity() {
                         if (connection.responseCode == 200) org.json.JSONArray(connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }) else org.json.JSONArray()
                     } finally { connection.disconnect() }
                     val wantedTitle = track.title.trim().lowercase()
-                    val wantedArtist = track.artist.trim().lowercase()
+                    val wantedArtist = usefulArtist.lowercase()
                     val wantedAlbum = track.album.trim().lowercase()
                     var best: org.json.JSONObject? = null
                     var bestScore = -1
@@ -1398,19 +1412,6 @@ class MainActivity : AppCompatActivity() {
                 message = "Online lyrics unavailable"
             }
 
-            // Keep local SMB .lrc as a fallback when no online match is available.
-            if (parsed.isEmpty() && smbContext != null) {
-                try {
-                    val path = track.path.substringBeforeLast('.', track.path) + ".lrc"
-                    val file = SmbFile(path, smbContext)
-                    if (file.exists() && file.isFile) {
-                        parsed = SmbFileInputStream(file).bufferedReader(Charsets.UTF_8).use { parseLrcText(it.readText()) }
-                        if (parsed.isNotEmpty()) message = "Using local LRC file"
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.w("RedWaveLyrics", "Local LRC lookup failed", e)
-                }
-            }
             runOnUiThread {
                 // Do not let a slow response for the previous song replace the current song's lyrics.
                 if (requestGeneration == lyricsRequestGeneration && (playingTrack?.path == track.path || (playingTrack == null && currentScreen == "LYRICS"))) {
@@ -1425,7 +1426,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun parseLrcText(text: String): List<LyricLine> {
         val pattern = Regex("\\[(\\d{1,2}):(\\d{2})(?:\\.(\\d{1,3}))?\\](.*)")
-        return text.lineSequence().flatMap { line ->
+        val timed = text.lineSequence().flatMap { line ->
             pattern.findAll(line).map { match ->
                 val minutes = match.groupValues[1].toLong()
                 val seconds = match.groupValues[2].toLong()
@@ -1433,6 +1434,10 @@ class MainActivity : AppCompatActivity() {
                 LyricLine((minutes * 60 + seconds) * 1000 + millis, match.groupValues[4].trim())
             }
         }.filter { it.text.isNotBlank() }.sortedBy { it.timeMs }.toList()
+        if (timed.isNotEmpty()) return timed
+        // Also accept plain-text sidecar lyric files without LRC timestamps.
+        return text.lineSequence().map { it.trim() }.filter { it.isNotBlank() }
+            .mapIndexed { index, line -> LyricLine(index * 4500L, line) }.toList()
     }
 
 
