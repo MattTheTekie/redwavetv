@@ -352,7 +352,7 @@ class MainActivity : AppCompatActivity() {
         heading.addView(label(title, 13, WHITE, true), LinearLayout.LayoutParams(0, 42, 1f))
         lateinit var actionButton: TextView
         actionButton = button(action, false) {
-            if (title == "RANDOM FROM YOUR LIBRARY") showRandomDropdown(items, actionButton)
+            if (title == "RANDOM FROM YOUR LIBRARY") showRandomSongs()
             else onClick()
         }
         heading.addView(actionButton, LinearLayout.LayoutParams(-2, 34))
@@ -709,6 +709,36 @@ class MainActivity : AppCompatActivity() {
             override fun afterTextChanged(s: android.text.Editable?) {}
         })
         addNowPlaying()
+    }
+
+    private fun showRandomSongs() {
+        currentScreen = "RANDOM_SONGS"
+        updateNavigation()
+        content.removeAllViews()
+        content.addView(label("Random from your library", 28, WHITE, true), LinearLayout.LayoutParams(-1, 58))
+        content.addView(label("All songs in this shuffled selection", 13, MUTED), LinearLayout.LayoutParams(-1, 30))
+        val songs = try {
+            libraryStore.loadRandomTracks(300).distinctBy {
+                listOf(it.title.trim().lowercase(), it.artist.trim().lowercase(), it.album.trim().lowercase(), it.folder.trimEnd('/').lowercase())
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("RedWaveRandom", "Could not load random songs", e)
+            emptyList()
+        }
+        val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        controls.addView(button("▶  SHUFFLE PLAY", true) {
+            if (songs.isNotEmpty()) playTrack(songs.random(), songs.shuffled())
+        }, LinearLayout.LayoutParams(210, 46).apply { rightMargin = 12 })
+        controls.addView(button("↻  REFRESH LIST", false) { showRandomSongs() }, LinearLayout.LayoutParams(180, 46))
+        content.addView(controls, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 8 })
+        content.addView(label("${songs.size} songs", 13, MUTED), LinearLayout.LayoutParams(-1, 28))
+        if (songs.isEmpty()) {
+            content.addView(label("No scanned tracks yet. Connect to your SMB share and scan your music library first.", 14, MUTED))
+        } else {
+            songs.forEach { addTrackRow(it, songs) }
+        }
+        addNowPlaying()
+        focusContent()
     }
 
     private fun showRandomDropdown(items: List<Track>, anchor: View) {
