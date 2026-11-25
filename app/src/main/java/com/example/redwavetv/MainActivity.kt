@@ -164,7 +164,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun focusContent() {
-        content.post { content.focusables(View.FOCUS_FORWARD).firstOrNull { it.isShown && it.isFocusable }?.requestFocus() }
+        content.post {
+            fun firstFocusable(view: View): View? {
+                if (view.isShown && view.isFocusable) return view
+                if (view is android.view.ViewGroup) {
+                    for (index in 0 until view.childCount) {
+                        val found = firstFocusable(view.getChildAt(index))
+                        if (found != null) return found
+                    }
+                }
+                return null
+            }
+            firstFocusable(content)?.requestFocus()
+        }
     }
 
     private fun updateNavigation() {
