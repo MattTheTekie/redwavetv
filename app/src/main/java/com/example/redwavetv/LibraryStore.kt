@@ -58,7 +58,7 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         return result
     }
     private fun visibleFolderSql(column: String = "folder"): String =
-        "NOT EXISTS (SELECT 1 FROM hidden_folders hf WHERE substr($column,1,length(hf.path))=hf.path)"
+        "NOT EXISTS (SELECT 1 FROM hidden_folders hf WHERE lower(substr($column,1,length(rtrim(hf.path,'/'))))=lower(rtrim(hf.path,'/')) AND (length($column)=length(rtrim(hf.path,'/')) OR substr($column,length(rtrim(hf.path,'/'))+1,1)='/'))"
 
     @Synchronized fun startOrResumeScan(base: String): Boolean {
         val db = writableDatabase
