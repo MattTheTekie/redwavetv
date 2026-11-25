@@ -124,8 +124,41 @@ class MainActivity : AppCompatActivity() {
         buildShell()
         try { tracks.addAll(libraryStore.loadTracks(limit = 100)) } catch (_: Exception) { scanStatus = "Library database unavailable" }
         try { playingTrack = libraryStore.loadRecent(1).firstOrNull() } catch (_: Exception) { }
-        showHome()
-        try { restoreSavedShare() } catch (_: Exception) { scanStatus = "Saved connection needs attention"; updateStatus() }
+        try {
+            showHome()
+        } catch (e: Exception) {
+            android.util.Log.e("RedWaveStartup", "Home screen failed during startup", e)
+            showStartupRecovery(e)
+        }
+        try {
+            restoreSavedShare()
+        } catch (e: Exception) {
+            android.util.Log.e("RedWaveStartup", "Could not restore saved SMB connection", e)
+            scanStatus = "Saved connection needs attention"
+            updateStatus()
+        }
+    }
+
+    private fun showStartupRecovery(error: Exception) {
+        if (!::content.isInitialized) {
+            android.util.Log.e("RedWaveStartup", "Content view is not initialized", error)
+            return
+        }
+        currentScreen = "HOME"
+        content.removeAllViews()
+        content.setPadding(28, 24, 28, 24)
+        updateNavigation()
+        content.addView(label("REDWAVE COULD NOT LOAD HOME", 25, WHITE, true), LinearLayout.LayoutParams(-1, 54))
+        content.addView(label("The app opened, but an error stopped the Home screen from rendering.", 15, MUTED), LinearLayout.LayoutParams(-1, 48))
+        content.addView(label(error.javaClass.simpleName + ": " + (error.message ?: "Unknown startup error"), 13, 0xFFFF8A80.toInt()), LinearLayout.LayoutParams(-1, -2))
+        content.addView(button("RETRY HOME", true) {
+            try { showHome() } catch (retryError: Exception) {
+                android.util.Log.e("RedWaveStartup", "Home retry failed", retryError)
+                showStartupRecovery(retryError)
+            }
+        }, LinearLayout.LayoutParams(220, 48).apply { topMargin = 18 })
+        content.addView(button("OPEN SETTINGS", false) { showSettings() }, LinearLayout.LayoutParams(220, 48).apply { topMargin = 10 })
+        addNowPlaying()
     }
 
     private fun buildShell() {
