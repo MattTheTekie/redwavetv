@@ -109,6 +109,7 @@ class MainActivity : AppCompatActivity() {
     private var homeLatestTracks: List<Track> = emptyList()
     private var homeFavoritePaths: Set<String> = emptySet()
     private var homeIndexedCount: Long = 0L
+    @Volatile private var startupLoadingActive = true
     private var currentLyrics: List<LyricLine> = emptyList()
     private var lyricsStatus = "Choose a track to look for an .lrc file"
     private var lyricsLoadingPath = ""
@@ -160,7 +161,7 @@ class MainActivity : AppCompatActivity() {
             showStartupLoading()
             content.postDelayed({
                 try {
-                    showHome()
+                    loadStartupHomeData()
                     restoreSavedShare()
                 } catch (e: Exception) {
                     android.util.Log.e("RedWaveStartup", "Could not restore saved SMB connection", e)
@@ -184,6 +185,46 @@ class MainActivity : AppCompatActivity() {
         super.onStop()
     }
 
+
+
+    // Keep the branded startup screen visible until every Home preview query has
+    // completed, including recently played, favourites, random picks and library count.
+    private fun loadStartupHomeData() {
+        thread(name = "redwave-startup-home-load") {
+            val recent = try { libraryStore.loadRecent(8) } catch (e: Exception) {
+                android.util.Log.e("RedWaveStartup", "Could not load recent tracks", e); emptyList()
+            }
+            val favourites = try { libraryStore.loadFavorites(8) } catch (e: Exception) {
+                android.util.Log.e("RedWaveStartup", "Could not load favourites", e); emptyList()
+            }
+            val randomPicks = try { libraryStore.loadRandomTracks(300) } catch (e: Exception) {
+                android.util.Log.e("RedWaveStartup", "Could not load random tracks", e); emptyList()
+            }
+            val latest = try { libraryStore.loadTracks(8) } catch (e: Exception) {
+                android.util.Log.e("RedWaveStartup", "Could not load library preview", e); emptyList()
+            }
+            val count = try { libraryStore.countTracks() } catch (e: Exception) { 0L }
+            val restored = try { libraryStore.loadRecent(1).firstOrNull() } catch (_: Exception) { null }
+            val all = (recent + favourites + randomPicks + latest).distinctBy { it.path }
+            val favouritePaths = try { libraryStore.favoritePaths(all.map { it.path }) } catch (e: Exception) {
+                android.util.Log.e("RedWaveStartup", "Could not load favourite markers", e); emptySet()
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                homeRecentTracks = recent
+                homeFavoriteTracks = favourites
+                homeRandomTracks = randomPicks
+                homeLatestTracks = latest
+                homeFavoritePaths = favouritePaths
+                homeIndexedCount = count
+                randomSelectionLoaded = true
+                homeDataLoaded = true
+                if (playingTrack == null && restored != null) playingTrack = restored
+                startupLoadingActive = false
+                showHome()
+            }
+        }
+    }
 
     private fun showStartupLoading() {
         content.removeAllViews()
@@ -438,6 +479,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showHome() {
+        if (startupLoadingActive && !homeDataLoaded) return
         currentScreen = "HOME"
         content.removeAllViews()
         content.setPadding(24, 8, 24, 18)
