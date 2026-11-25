@@ -120,22 +120,21 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread { toast(detail) }
             }
         })
-        libraryStore = LibraryStore(this)
-        buildShell()
-        try { tracks.addAll(libraryStore.loadTracks(limit = 100)) } catch (_: Exception) { scanStatus = "Library database unavailable" }
-        try { playingTrack = libraryStore.loadRecent(1).firstOrNull() } catch (_: Exception) { }
         try {
+            libraryStore = LibraryStore(this)
+            buildShell()
+            // Paint Home first; defer database and encrypted-preference work on slower TV hardware.
             showHome()
+            content.postDelayed({
+                try { restoreSavedShare() } catch (e: Exception) {
+                    android.util.Log.e("RedWaveStartup", "Could not restore saved SMB connection", e)
+                    scanStatus = "Saved connection needs attention"
+                    updateStatus()
+                }
+            }, 450L)
         } catch (e: Exception) {
-            android.util.Log.e("RedWaveStartup", "Home screen failed during startup", e)
-            showStartupRecovery(e)
-        }
-        try {
-            restoreSavedShare()
-        } catch (e: Exception) {
-            android.util.Log.e("RedWaveStartup", "Could not restore saved SMB connection", e)
-            scanStatus = "Saved connection needs attention"
-            updateStatus()
+            android.util.Log.e("RedWaveStartup", "Initial UI setup failed", e)
+            if (::content.isInitialized) showStartupRecovery(e)
         }
     }
 
@@ -335,7 +334,8 @@ class MainActivity : AppCompatActivity() {
         }
         val heroCopy = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         heroCopy.addView(label("ALL YOUR MUSIC.\nONE BEAUTIFUL LIBRARY.", 25, WHITE, true), LinearLayout.LayoutParams(-1, 68))
-        heroCopy.addView(label(safeTrackCount().toString() + " songs indexed  ·  browse folders anytime", 13, 0xFFD8D8DE.toInt()))
+        val countLabel = label("Loading your library…", 13, 0xFFD8D8DE.toInt())
+        heroCopy.addView(countLabel)
         val openLibrary = button(if (smbContext == null) "OPEN SETTINGS" else "OPEN LIBRARY", false) {
             if (smbContext != null) showQueue() else showSettings()
         }.apply {
@@ -344,38 +344,67 @@ class MainActivity : AppCompatActivity() {
             maxLines = 1
             minWidth = 228
             setPadding(16, 10, 16, 10)
-            background = rounded(ORANGE, 10)
+            background = rounded(0xFFC45B08.toInt(), 12)
             setTextColor(0xFFFFF4E8.toInt())
             setOnFocusChangeListener { view, focused ->
                 view.background = rounded(if (focused) 0xFFE07816.toInt() else 0xFFC45B08.toInt(), 12)
                 (view as TextView).setTextColor(0xFFFFF4E8.toInt())
             }
         }
-        openLibrary.background = rounded(0xFFC45B08.toInt(), 12)
         heroCopy.addView(openLibrary, LinearLayout.LayoutParams(228, 54).apply { topMargin = 12 })
         hero.addView(heroCopy, LinearLayout.LayoutParams(0, -2, 1f))
         hero.addView(label("♫", 58, 0xFFFF454F.toInt(), true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(112, 112))
         content.addView(hero, LinearLayout.LayoutParams(-1, -2).apply { topMargin = 10; bottomMargin = 22 })
-        if (isScanning) content.addView(label("Scanning network library…  " + tracks.size + " found", 13, GREEN, true), LinearLayout.LayoutParams(-1, 36))
-        val recent = try { libraryStore.loadRecent(8) } catch (_: Exception) { emptyList() }
-        val favourites = try { libraryStore.loadFavorites(8) } catch (_: Exception) { emptyList() }
-        val randomPicks = try { libraryStore.loadRandomTracks(12) } catch (_: Exception) { emptyList() }
-        val latest = safeLoadTracks(8)
-        val columns = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.TOP }
-        val left = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        addHomeSection(left, "RECENTLY PLAYED", "SEE ALL", recent, "Play a song and it will appear here.") { showRecents() }
-        addHomeSection(left, "FAVOURITES", "SEE ALL", favourites, "Save songs with ☆ to build your favourites.") { showFavourites() }
-        addHomeSection(right, "RANDOM FROM YOUR LIBRARY", "SHOW SONGS", randomPicks, "Discover a fresh shuffled selection from your scanned music library.") { }
-        if (latest.isNotEmpty()) addHomeSection(right, "YOUR LIBRARY", "SEE ALL SONGS", latest, "Your scanned tracks will appear here.") { showQueue() }
-        columns.addView(left, LinearLayout.LayoutParams(0, -2, 1f).apply { rightMargin = 18 })
-        columns.addView(right, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = 18 })
-        content.addView(columns, LinearLayout.LayoutParams(-1, -2))
+        val loading = label("Loading your music…", 14, MUTED)
+        content.addView(loading, LinearLayout.LayoutParams(-1, 64))
         addNowPlaying()
         focusContent()
+
+        // The first frame is visible and focusable before any library query begins.
+        thread(name = "redwave-home-load") {
+            val recent = try { libraryStore.loadRecent(8) } catch (e: Exception) {
+                android.util.Log.e("RedWaveHome", "Could not load recent tracks", e); emptyList()
+            }
+            val favourites = try { libraryStore.loadFavorites(8) } catch (e: Exception) {
+                android.util.Log.e("RedWaveHome", "Could not load favourites", e); emptyList()
+            }
+            val randomPicks = try { libraryStore.loadRandomTracks(12) } catch (e: Exception) {
+                android.util.Log.e("RedWaveHome", "Could not load random tracks", e); emptyList()
+            }
+            val latest = try { libraryStore.loadTracks(8) } catch (e: Exception) {
+                android.util.Log.e("RedWaveHome", "Could not load library preview", e); emptyList()
+            }
+            val count = try { libraryStore.countTracks() } catch (_: Exception) { 0L }
+            val restored = try { libraryStore.loadRecent(1).firstOrNull() } catch (_: Exception) { null }
+            val all = (recent + favourites + randomPicks + latest).distinctBy { it.path }
+            val favouritePaths = all.filter { track ->
+                try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }
+            }.map { it.path }.toSet()
+            runOnUiThread {
+                if (isFinishing || isDestroyed || currentScreen != "HOME") return@runOnUiThread
+                if (playingTrack == null && restored != null) {
+                    playingTrack = restored
+                    addNowPlaying()
+                }
+                countLabel.text = "$count songs indexed  ·  browse folders anytime"
+                if (isScanning) loading.text = "Scanning network library…"
+                else content.removeView(loading)
+                val columns = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.TOP }
+                val left = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                addHomeSection(left, "RECENTLY PLAYED", "SEE ALL", recent, "Play a song and it will appear here.", favouritePaths) { showRecents() }
+                addHomeSection(left, "FAVOURITES", "SEE ALL", favourites, "Save songs with ☆ to build your favourites.", favouritePaths) { showFavourites() }
+                addHomeSection(right, "RANDOM FROM YOUR LIBRARY", "SHOW SONGS", randomPicks, "Discover a fresh shuffled selection from your scanned music library.", favouritePaths) { }
+                if (latest.isNotEmpty()) addHomeSection(right, "YOUR LIBRARY", "SEE ALL SONGS", latest, "Your scanned tracks will appear here.", favouritePaths) { showQueue() }
+                columns.addView(left, LinearLayout.LayoutParams(0, -2, 1f).apply { rightMargin = 18 })
+                columns.addView(right, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = 18 })
+                content.addView(columns, LinearLayout.LayoutParams(-1, -2))
+                focusContent()
+            }
+        }
     }
 
-    private fun addHomeSection(parent: LinearLayout, title: String, action: String, items: List<Track>, emptyText: String, onClick: () -> Unit) {
+    private fun addHomeSection(parent: LinearLayout, title: String, action: String, items: List<Track>, emptyText: String, favoritePaths: Set<String> = emptySet(), onClick: () -> Unit) {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(14, 10, 14, 12)
@@ -393,7 +422,7 @@ class MainActivity : AppCompatActivity() {
         if (items.isEmpty()) {
             card.addView(label(emptyText, 12, MUTED), LinearLayout.LayoutParams(-1, 58))
         } else {
-            items.take(5).forEach { addTrackRow(it, items, card) }
+            items.take(5).forEach { addTrackRow(it, items, card, favoritePaths.contains(it.path)) }
         }
         parent.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 16 })
     }
@@ -635,7 +664,7 @@ class MainActivity : AppCompatActivity() {
         content.addView(box, LinearLayout.LayoutParams(-1, 120).apply { topMargin = 12 })
     }
 
-    private fun addTrackRow(track: Track, queue: List<Track>? = null, parent: LinearLayout = content) {
+    private fun addTrackRow(track: Track, queue: List<Track>? = null, parent: LinearLayout = content, favoriteOverride: Boolean? = null) {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -656,7 +685,7 @@ class MainActivity : AppCompatActivity() {
         names.addView(label(track.title, 13, WHITE, true).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
         names.addView(label(track.artist + if (track.album.isNotBlank()) " · " + track.album else " · " + track.folder.trimEnd('/').substringAfterLast('/'), 10, MUTED).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
         row.addView(names, LinearLayout.LayoutParams(0, 54, 1f))
-        val favorite = try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }
+        val favorite = favoriteOverride ?: try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }
         val favoriteButton = TextView(this).apply {
             text = if (favorite) "★" else "☆"
             contentDescription = if (favorite) "Remove ${track.title} from favourites" else "Add ${track.title} to favourites"
@@ -1197,10 +1226,30 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun restoreSavedShare() {
-        currentShare = securePrefs.getString("share", null) ?: return
-        scanStatus = "Connecting to saved share…"
-        updateStatus()
-        connectSavedShare()
+        thread(name = "redwave-restore-preferences") {
+            try {
+                val savedShare = securePrefs.getString("share", null)
+                if (savedShare.isNullOrBlank()) return@thread
+                val username = securePrefs.getString("username", "") ?: ""
+                val password = securePrefs.getString("password", "") ?: ""
+                val domain = securePrefs.getString("domain", "") ?: ""
+                val shouldScan = try { libraryStore.countTracks() == 0L } catch (_: Exception) { true }
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    currentShare = savedShare
+                    scanStatus = "Connecting to saved share…"
+                    updateStatus()
+                    connectAndScan(username, password, domain, shouldScan)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("RedWaveStartup", "Could not restore saved SMB connection", e)
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    scanStatus = "Saved connection needs attention"
+                    updateStatus()
+                }
+            }
+        }
     }
 
     private fun connectSavedShare() {
