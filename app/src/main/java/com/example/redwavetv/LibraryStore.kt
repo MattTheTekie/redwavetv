@@ -136,13 +136,13 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         val values = ContentValues().apply { put("path", path); put("played_at", System.currentTimeMillis()) }
         writableDatabase.insertWithOnConflict("play_history", null, values, SQLiteDatabase.CONFLICT_REPLACE)
     }
-    fun searchTracks(query: String, limit: Int = 100): List<Track> {
-        val q = query.trim() + "%"
-        // Prefix matching uses NOCASE indexes; contains-wildcards forced a full scan
-        // of the entire library for every character typed.
+    fun searchTracks(query: String, limit: Int = 100, offset: Int = 0): List<Track> {
+        val q = "%" + query.trim() + "%"
+        // Contains matching finds terms inside titles, artists, albums and folders.
+        // It runs on the search executor and is paged so the UI never loads the whole library.
         return queryTrackRows(
-            "SELECT title,path,folder,artist,album,artwork FROM tracks WHERE title LIKE ? OR artist LIKE ? OR album LIKE ? OR folder LIKE ? GROUP BY lower(title),lower(artist),lower(album),lower(folder) ORDER BY title COLLATE NOCASE LIMIT ?",
-            arrayOf(q,q,q,q,limit.toString()), limit
+            "SELECT title,path,folder,artist,album,artwork FROM tracks WHERE title LIKE ? OR artist LIKE ? OR album LIKE ? OR folder LIKE ? GROUP BY lower(title),lower(artist),lower(album),lower(folder) ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?",
+            arrayOf(q,q,q,q,limit.toString(),offset.toString()), limit
         )
     }
     fun loadRecent(limit: Int = 100): List<Track> = queryTrackRows("SELECT t.title,t.path,t.folder,t.artist,t.album,t.artwork FROM tracks t INNER JOIN play_history h ON h.path=t.path ORDER BY h.played_at DESC LIMIT ?", arrayOf(limit.toString()), limit)
