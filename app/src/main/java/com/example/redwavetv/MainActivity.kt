@@ -333,7 +333,7 @@ class MainActivity : AppCompatActivity() {
         val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         addHomeSection(left, "RECENTLY PLAYED", "SEE ALL", recent, "Play a song and it will appear here.") { showRecents() }
         addHomeSection(left, "FAVOURITES", "SEE ALL", favourites, "Save songs with ☆ to build your favourites.") { showFavourites() }
-        addHomeSection(right, "RANDOM FROM YOUR LIBRARY", "OPEN MIX", randomPicks, "Discover a fresh shuffled selection from your scanned music library.") { showRandomLibrary() }
+        addHomeSection(right, "RANDOM FROM YOUR LIBRARY", "SHOW SONGS", randomPicks, "Discover a fresh shuffled selection from your scanned music library.") { showRandomDropdown(randomPicks) }
         if (latest.isNotEmpty()) addHomeSection(right, "YOUR LIBRARY", "SEE ALL SONGS", latest, "Your scanned tracks will appear here.") { showQueue() }
         columns.addView(left, LinearLayout.LayoutParams(0, -2, 1f).apply { rightMargin = 18 })
         columns.addView(right, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = 18 })
@@ -704,6 +704,23 @@ class MainActivity : AppCompatActivity() {
             override fun afterTextChanged(s: android.text.Editable?) {}
         })
         addNowPlaying()
+    }
+
+    private fun showRandomDropdown(items: List<Track>) {
+        if (items.isEmpty()) {
+            toast("No scanned tracks yet. Scan your library first.")
+            return
+        }
+        val popup = android.widget.PopupMenu(this, navButtons["HOME"] ?: content)
+        items.forEachIndexed { index, track ->
+            popup.menu.add(0, index, index, track.title + if (track.artist.isNotBlank()) "  ·  " + track.artist else "")
+        }
+        popup.setOnMenuItemClickListener { item ->
+            val selected = items.getOrNull(item.itemId)
+            if (selected != null) playTrack(selected, items)
+            true
+        }
+        popup.show()
     }
 
     private fun showRandomLibrary() {
