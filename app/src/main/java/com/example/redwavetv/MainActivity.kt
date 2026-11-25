@@ -113,6 +113,10 @@ class MainActivity : AppCompatActivity() {
         tabs.forEach { tab ->
             val nav = button(tab.first, currentScreen == tab.second) { tab.third() }
             navButtons[tab.second] = nav
+            nav.setOnFocusChangeListener { view, focused ->
+                val selected = if (tab.second == "QUEUE") currentScreen == "QUEUE" || currentScreen == "ALBUMS" || currentScreen == "FOLDERS" else currentScreen == tab.second
+                view.background = rounded(if (focused || selected) RED else SURFACE, 10)
+            }
             header.addView(nav, LinearLayout.LayoutParams(0, 48, 1f).apply { leftMargin = 4; rightMargin = 4 })
         }
         root.addView(header, LinearLayout.LayoutParams(-1, 72))
