@@ -333,7 +333,7 @@ class MainActivity : AppCompatActivity() {
         val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         addHomeSection(left, "RECENTLY PLAYED", "SEE ALL", recent, "Play a song and it will appear here.") { showRecents() }
         addHomeSection(left, "FAVOURITES", "SEE ALL", favourites, "Save songs with ☆ to build your favourites.") { showFavourites() }
-        addHomeSection(right, "RANDOM FROM YOUR LIBRARY", "SEE ALL SONGS", randomPicks, "Connect and scan your SMB library to get random picks.") { showQueue() }
+        addHomeSection(right, "RANDOM FROM YOUR LIBRARY", "OPEN MIX", randomPicks, "Discover a fresh shuffled selection from your scanned music library.") { showRandomLibrary() }
         if (latest.isNotEmpty()) addHomeSection(right, "YOUR LIBRARY", "SEE ALL SONGS", latest, "Your scanned tracks will appear here.") { showQueue() }
         columns.addView(left, LinearLayout.LayoutParams(0, -2, 1f).apply { rightMargin = 18 })
         columns.addView(right, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = 18 })
@@ -704,6 +704,36 @@ class MainActivity : AppCompatActivity() {
             override fun afterTextChanged(s: android.text.Editable?) {}
         })
         addNowPlaying()
+    }
+
+    private fun showRandomLibrary() {
+        currentScreen = "RANDOM"
+        updateNavigation()
+        content.removeAllViews()
+        content.addView(label("Random from your library", 28, WHITE, true), LinearLayout.LayoutParams(-1, 58))
+        content.addView(label("A fresh shuffled mix from your scanned SMB collection", 13, MUTED), LinearLayout.LayoutParams(-1, 32))
+        val picks = try {
+            libraryStore.loadRandomTracks(100).distinctBy {
+                listOf(it.title.trim().lowercase(), it.artist.trim().lowercase(), it.album.trim().lowercase(), it.folder.trimEnd('/').lowercase())
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("RedWaveRandom", "Could not load random library mix", e)
+            emptyList()
+        }
+        val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        actions.addView(button("▶  SHUFFLE PLAY", true) {
+            if (picks.isNotEmpty()) playTrack(picks.random(), picks.shuffled())
+        }, LinearLayout.LayoutParams(210, 48).apply { rightMargin = 12 })
+        actions.addView(button("↻  NEW MIX", false) { showRandomLibrary() }, LinearLayout.LayoutParams(160, 48))
+        content.addView(actions, LinearLayout.LayoutParams(-1, 56).apply { bottomMargin = 10 })
+        content.addView(label("${picks.size} random tracks", 13, MUTED), LinearLayout.LayoutParams(-1, 30))
+        if (picks.isEmpty()) {
+            content.addView(label("No scanned tracks yet. Connect to your SMB share and scan your music library first.", 14, MUTED))
+        } else {
+            picks.forEach { addTrackRow(it, picks) }
+        }
+        addNowPlaying()
+        focusContent()
     }
 
     private fun showRecents() {
