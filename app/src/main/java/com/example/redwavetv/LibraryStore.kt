@@ -50,6 +50,10 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         db.beginTransaction()
         try {
             val item = db.rawQuery("SELECT id,path,depth FROM scan_queue ORDER BY id DESC LIMIT 1", null).use { c -> if (c.moveToFirst()) Triple(c.getLong(0), c.getString(1), c.getInt(2)) else null } ?: run { db.setTransactionSuccessful(); return null }
+            // Claim the directory exactly once. The previous implementation left it in
+            // the queue until completeDirectory(), so dequeueDirectory() returned it
+            // forever and the scanner repeatedly traversed the same directory.
+            db.delete("scan_queue", "id=?", arrayOf(item.first.toString()))
             db.setTransactionSuccessful()
             return Pair(item.second, item.third)
         } finally { db.endTransaction() }
