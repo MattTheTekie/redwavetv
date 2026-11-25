@@ -357,23 +357,22 @@ class MainActivity : AppCompatActivity() {
         hero.addView(heroCopy, LinearLayout.LayoutParams(0, -2, 1f))
         hero.addView(label("♫", 58, 0xFFFF454F.toInt(), true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(112, 112))
         content.addView(hero, LinearLayout.LayoutParams(-1, -2).apply { topMargin = 10; bottomMargin = 22 })
-        val loading = label(if (isScanning) "Scanning network library…" else "Loading your songs…", 14, MUTED)
-        content.addView(loading, LinearLayout.LayoutParams(-1, 64))
+        // Render usable Home sections immediately. Database reads below only enrich
+        // these cards; a slow SQLite open must never leave a permanent loading screen.
+        val homeColumns = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.TOP
+        }
+        val initialLeft = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val initialRight = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        addHomeSection(initialLeft, "RECENTLY PLAYED", "SEE ALL", emptyList(), "Your recently played songs will appear here.") { showRecents() }
+        addHomeSection(initialLeft, "FAVOURITES", "SEE ALL", emptyList(), "Your saved favourite songs will appear here.") { showFavourites() }
+        addHomeSection(initialRight, "RANDOM FROM YOUR LIBRARY", "SHOW SONGS", emptyList(), "Open the random song list from your library.") { showRandomSongs() }
+        homeColumns.addView(initialLeft, LinearLayout.LayoutParams(0, -2, 1f).apply { rightMargin = 18 })
+        homeColumns.addView(initialRight, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = 18 })
+        content.addView(homeColumns, LinearLayout.LayoutParams(-1, -2))
         addNowPlaying()
         focusContent()
-
-        // If a slow or locked SQLite database stalls a query, replace the endless
-        // spinner text with a useful status while leaving the rest of Home usable.
-        content.postDelayed({
-            if (!isFinishing && !isDestroyed && currentScreen == "HOME" && loading.parent === content) {
-                loading.text = if (isScanning) {
-                    "Your network library is still scanning. You can browse Folders while it continues."
-                } else {
-                    "Library loading is taking longer than expected. Open Folders to browse, or reopen Home to retry."
-                }
-                countLabel.text = if (isScanning) "Scanning in the background…" else "Library database is responding slowly"
-            }
-        }, 10000L)
 
         // The first frame is visible and focusable before any library query begins.
         thread(name = "redwave-home-load") {
@@ -404,10 +403,9 @@ class MainActivity : AppCompatActivity() {
                     playingTrack = restored
                     addNowPlaying()
                 }
-                countLabel.text = "$count songs indexed  ·  browse folders anytime"
-                if (isScanning) loading.text = "Scanning network library…"
-                else content.removeView(loading)
+                countLabel.text = if (isScanning) "$count songs indexed · scan continuing in background" else "$count songs indexed · browse folders anytime"
                 android.util.Log.i("RedWaveHome", "Home data rendered: count=$count recent=${recent.size} favourites=${favourites.size} random=${randomPicks.size} latest=${latest.size}")
+                content.removeView(homeColumns)
                 val columns = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.TOP }
                 val left = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
                 val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
