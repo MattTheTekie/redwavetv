@@ -41,6 +41,7 @@ import com.google.android.exoplayer2.upstream.DataSource
 import com.google.android.exoplayer2.upstream.DataSpec
 import com.google.android.exoplayer2.upstream.TransferListener
 import jcifs.CIFSContext
+import jcifs.SmbResource
 import jcifs.config.PropertyConfiguration
 import jcifs.context.BaseContext
 import jcifs.smb.NtlmPasswordAuthenticator
@@ -378,10 +379,10 @@ class MainActivity : AppCompatActivity() {
                 val ctx = smbContext ?: return@thread
                 val directory = SmbFile(path, ctx)
                 val iterator = directory.children()
-                val allVisible = ArrayList<SmbFile>()
+                val allVisible = ArrayList<SmbResource>()
                 try {
                     while (iterator.hasNext()) {
-                        val file = iterator.next() as SmbFile
+                        val file = iterator.next()
                         val name = file.getName().trimEnd('/')
                         val isAudio = !file.isDirectory && name.substringAfterLast('.', "").lowercase() in AUDIO_EXTENSIONS
                         if (file.isDirectory || isAudio) allVisible.add(file)
@@ -390,7 +391,7 @@ class MainActivity : AppCompatActivity() {
                     try { iterator.close() } catch (_: Exception) { }
                 }
                 // Sort the complete directory before paging so subfolders stay first on every page.
-                val sortedAll = allVisible.sortedWith(compareBy<SmbFile>({ !it.isDirectory }, { it.getName().trimEnd('/').lowercase() }))
+                val sortedAll = allVisible.sortedWith(compareBy<SmbResource>({ !it.isDirectory }, { it.getName().trimEnd('/').lowercase() }))
                 val page = sortedAll.drop(offset).take(100)
                 val hasMore = offset + page.size < sortedAll.size
                 runOnUiThread {
@@ -405,7 +406,7 @@ class MainActivity : AppCompatActivity() {
                     val sortedPage = page
                     val folderQueue = sortedAll.filter { !it.isDirectory }.map { file ->
                         val name = file.getName().trimEnd('/')
-                        Track(name.substringBeforeLast('.'), file.getURL().toString(), file.getParent() ?: path)
+                        Track(name.substringBeforeLast('.'), file.getLocator().getCanonicalURL(), file.getLocator().getParent() ?: path)
                     }
                     if (folderQueue.isNotEmpty()) content.addView(button("▶ PLAY FOLDER", true) {
                         playTrack(folderQueue.first(), folderQueue, true)
@@ -925,14 +926,14 @@ class MainActivity : AppCompatActivity() {
                         visited++
                         try {
                             // jcifs-ng returns SmbResource entries. Do not force-cast them.
-                            val file = resource as? SmbFile ?: continue
+                            val file = resource
                             if (file.isDirectory) {
-                                if (depth < 40) libraryStore.enqueueDirectory(file.getURL().toString(), depth + 1)
+                                if (depth < 40) libraryStore.enqueueDirectory(file.getLocator().getCanonicalURL(), depth + 1)
                             } else {
                                 val name = file.getName().trimEnd('/')
                                 val ext = name.substringAfterLast('.', "").lowercase()
                                 if (ext in AUDIO_EXTENSIONS) {
-                                    batch.add(Track(name.substringBeforeLast('.'), file.getURL().toString(), file.getParent() ?: base))
+                                    batch.add(Track(name.substringBeforeLast('.'), file.getLocator().getCanonicalURL(), file.getLocator().getParent() ?: base))
                                     discovered++
                                     if (batch.size >= 100) { libraryStore.upsertBatch(batch); batch.clear() }
                                 }
