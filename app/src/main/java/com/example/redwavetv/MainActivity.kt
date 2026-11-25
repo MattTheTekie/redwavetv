@@ -156,15 +156,18 @@ class MainActivity : AppCompatActivity() {
         try {
             libraryStore = LibraryStore(this)
             buildShell()
-            // Paint Home first; defer database and encrypted-preference work on slower TV hardware.
-            showHome()
+            // Show a branded first frame before Home starts its database work.
+            showStartupLoading()
             content.postDelayed({
-                try { restoreSavedShare() } catch (e: Exception) {
+                try {
+                    showHome()
+                    restoreSavedShare()
+                } catch (e: Exception) {
                     android.util.Log.e("RedWaveStartup", "Could not restore saved SMB connection", e)
                     scanStatus = "Saved connection needs attention"
                     updateStatus()
                 }
-            }, 450L)
+            }, 700L)
         } catch (e: Exception) {
             android.util.Log.e("RedWaveStartup", "Initial UI setup failed", e)
             if (::content.isInitialized) showStartupRecovery(e)
@@ -179,6 +182,45 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() {
         savePlaybackState()
         super.onStop()
+    }
+
+
+    private fun showStartupLoading() {
+        content.removeAllViews()
+        content.setPadding(24, 12, 24, 12)
+        content.gravity = Gravity.CENTER
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(32, 24, 32, 24)
+        }
+        val mark = label("♫", 76, RED, true).apply { gravity = Gravity.CENTER }
+        panel.addView(mark, LinearLayout.LayoutParams(-1, 100))
+        val brand = label("REDWAVE", 34, WHITE, true).apply {
+            gravity = Gravity.CENTER
+            letterSpacing = 0.16f
+        }
+        panel.addView(brand, LinearLayout.LayoutParams(-1, 52))
+        panel.addView(label("YOUR MUSIC. YOUR WAY.", 12, MUTED, true).apply {
+            gravity = Gravity.CENTER
+            letterSpacing = 0.22f
+        }, LinearLayout.LayoutParams(-1, 30))
+        val progress = android.widget.ProgressBar(this).apply {
+            isIndeterminate = true
+            indeterminateTintList = android.content.res.ColorStateList.valueOf(RED)
+        }
+        panel.addView(progress, LinearLayout.LayoutParams(48, 48).apply { topMargin = 30; bottomMargin = 18 })
+        panel.addView(label("PREPARING YOUR MUSIC LIBRARY", 12, MUTED, true).apply {
+            gravity = Gravity.CENTER
+            letterSpacing = 0.08f
+        }, LinearLayout.LayoutParams(-1, 28))
+        content.addView(panel, LinearLayout.LayoutParams(-1, -1))
+        ObjectAnimator.ofFloat(mark, View.ALPHA, 0.55f, 1f).apply {
+            duration = 950L
+            repeatMode = ValueAnimator.REVERSE
+            repeatCount = ValueAnimator.INFINITE
+            start()
+        }
     }
 
     private fun showStartupRecovery(error: Exception) {
