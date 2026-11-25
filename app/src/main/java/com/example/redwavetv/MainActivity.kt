@@ -271,6 +271,17 @@ class MainActivity : AppCompatActivity() {
         addNowPlaying()
     }
 
+    private fun invalidateHomeLibraryCache() {
+        homeDataLoaded = false
+        homeLoadInProgress = false
+        randomSelectionLoaded = false
+        homeRecentTracks = emptyList()
+        homeFavoriteTracks = emptyList()
+        homeRandomTracks = emptyList()
+        homeLatestTracks = emptyList()
+        homeFavoritePaths = emptySet()
+    }
+
     private fun showSettings() {
         currentScreen = "SETTINGS"
         content.removeAllViews()
@@ -304,6 +315,7 @@ class MainActivity : AppCompatActivity() {
             row.addView(label(hiddenPath.trimEnd('/').substringAfterLast('/'), 13, WHITE), LinearLayout.LayoutParams(0, 42, 1f))
             row.addView(button("UNHIDE", false) {
                 libraryStore.unhideFolder(hiddenPath)
+                invalidateHomeLibraryCache()
                 showSettings()
             }, LinearLayout.LayoutParams(112, 38))
             hiddenPanel.addView(row, LinearLayout.LayoutParams(-1, 44))
@@ -620,13 +632,16 @@ class MainActivity : AppCompatActivity() {
                 val ctx = smbContext ?: return@thread
                 val directory = SmbFile(path, ctx)
                 val iterator = directory.children()
+                val hiddenFolderPaths = try { libraryStore.hiddenFolders() } catch (_: Exception) { emptyList() }
                 val allVisible = ArrayList<SmbResource>()
                 try {
                     while (iterator.hasNext()) {
                         val file = iterator.next()
                         val name = file.getName().trimEnd('/')
                         val isAudio = !file.isDirectory && name.substringAfterLast('.', "").lowercase() in AUDIO_EXTENSIONS
-                        if (file.isDirectory || isAudio) allVisible.add(file)
+                        val canonical = if (file.isDirectory) file.getLocator().getCanonicalURL().trimEnd('/') + "/" else ""
+                        val isHiddenFolder = file.isDirectory && hiddenFolderPaths.any { canonical.startsWith(it, ignoreCase = true) }
+                        if (!isHiddenFolder && (file.isDirectory || isAudio)) allVisible.add(file)
                     }
                 } finally {
                     try { iterator.close() } catch (_: Exception) { }
@@ -659,7 +674,9 @@ class MainActivity : AppCompatActivity() {
                             folderButton.setOnLongClickListener {
                                 try {
                                     libraryStore.hideFolder(file.getLocator().getCanonicalURL())
+                                    invalidateHomeLibraryCache()
                                     toast("Hidden from your music library: $name")
+                                    showRemoteFolder(path)
                                 } catch (e: Exception) { toast("Could not hide folder: " + (e.message ?: "database error")) }
                                 true
                             }
@@ -1575,7 +1592,7 @@ class MainActivity : AppCompatActivity() {
             while (true) {
                 val nextDirectory = libraryStore.dequeueDirectory() ?: break
                 val (url, depth) = nextDirectory
-                if (depth > 40) continue
+                if (depth > 40 || hiddenFolders.any { url.startsWith(it, ignoreCase = true) }) continue
                 val directory = SmbFile(url, ctx)
                 val iterator = directory.children()
                 try {
@@ -1587,7 +1604,8 @@ class MainActivity : AppCompatActivity() {
                             val file = resource
                             if (file.isDirectory) {
                                 val childPath = file.getLocator().getCanonicalURL()
-                                val isHidden = hiddenFolders.any { childPath.startsWith(it, ignoreCase = true) }
+                                val normalizedChildPath = childPath.trimEnd('/') + "/"
+                                val isHidden = hiddenFolders.any { normalizedChildPath.startsWith(it, ignoreCase = true) }
                                 if (!isHidden && depth < 40) libraryStore.enqueueDirectory(childPath, depth + 1)
                             } else {
                                 val name = file.getName().trimEnd('/')
