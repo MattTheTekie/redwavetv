@@ -306,7 +306,11 @@ class MainActivity : AppCompatActivity() {
         val openLibrary = button(if (smbContext == null) "OPEN SETTINGS" else "OPEN LIBRARY", false) {
             if (smbContext != null) showQueue() else showSettings()
         }.apply {
-            textSize = 14f
+            textSize = 13f
+            isSingleLine = true
+            maxLines = 1
+            minWidth = 228
+            setPadding(16, 10, 16, 10)
             background = rounded(ORANGE, 10)
             setTextColor(0xFFFFF4E8.toInt())
             setOnFocusChangeListener { view, focused ->
@@ -315,7 +319,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         openLibrary.background = rounded(0xFFD97706.toInt(), 12)
-        heroCopy.addView(openLibrary, LinearLayout.LayoutParams(196, 50).apply { topMargin = 10 })
+        heroCopy.addView(openLibrary, LinearLayout.LayoutParams(228, 54).apply { topMargin = 12 })
         hero.addView(heroCopy, LinearLayout.LayoutParams(0, -2, 1f))
         hero.addView(label("♫", 58, 0xFFFF454F.toInt(), true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(112, 112))
         content.addView(hero, LinearLayout.LayoutParams(-1, -2).apply { topMargin = 10; bottomMargin = 22 })
@@ -585,12 +589,11 @@ class MainActivity : AppCompatActivity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(8, 3, 8, 3)
             background = rounded(SURFACE_HI, 8)
-            isFocusable = true
-            isClickable = true
-            setOnFocusChangeListener { v, focus -> v.background = rounded(if (focus) RED else SURFACE, 10) }
-            setOnClickListener { playTrack(track, queue) }
+            isFocusable = false
+            isClickable = false
         }
         val play = button("▶", false) { playTrack(track, queue) }.apply {
+            contentDescription = "Play ${track.title}"
             textSize = 15f
             setTextColor(WHITE)
             background = rounded(0xFF343B4A.toInt(), 18)
@@ -604,6 +607,7 @@ class MainActivity : AppCompatActivity() {
         val favorite = try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }
         val favoriteButton = TextView(this).apply {
             text = if (favorite) "★" else "☆"
+            contentDescription = if (favorite) "Remove ${track.title} from favourites" else "Add ${track.title} to favourites"
             textSize = 21f
             gravity = Gravity.CENTER
             setTextColor(if (favorite) 0xFFFFB547.toInt() else MUTED)
@@ -611,7 +615,10 @@ class MainActivity : AppCompatActivity() {
             isFocusableInTouchMode = true
             isClickable = true
             background = rounded(SURFACE, 8)
-            setOnFocusChangeListener { view, focused -> view.background = rounded(if (focused) SURFACE_HI else SURFACE, 8) }
+            setOnFocusChangeListener { view, focused ->
+                view.background = rounded(if (focused) SURFACE_HI else SURFACE, 8)
+                setTextColor(if (favorite) 0xFFFFB547.toInt() else MUTED)
+            }
             setOnClickListener {
                 try {
                     val saved = libraryStore.isFavorite(track.path)
@@ -619,6 +626,7 @@ class MainActivity : AppCompatActivity() {
                     toast(if (saved) "Removed from favourites" else "Added to favourites")
                     text = if (saved) "☆" else "★"
                     setTextColor(if (saved) MUTED else 0xFFFFB547.toInt())
+                    contentDescription = if (saved) "Add ${track.title} to favourites" else "Remove ${track.title} from favourites"
                 } catch (e: Exception) { toast("Could not save favourite: " + (e.message ?: "database error")) }
                 if (currentScreen == "FAVOURITES") showFavourites()
             }
@@ -668,8 +676,8 @@ class MainActivity : AppCompatActivity() {
                             results.addView(row)
                         }
                         val paging = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setPadding(0, 12, 0, 12) }
-                        if (offset > 0) paging.addView(button("PREVIOUS 60", false) { runSearch(value, (offset - 60).coerceAtLeast(0)) }, LinearLayout.LayoutParams(180, 48).apply { rightMargin = 10 })
-                        if (matches.size > 60) paging.addView(button("NEXT 60", true) { runSearch(value, offset + 60) }, LinearLayout.LayoutParams(180, 48))
+                        if (offset > 0) paging.addView(button("←  PREVIOUS 60", false) { runSearch(value, (offset - 60).coerceAtLeast(0)) }, LinearLayout.LayoutParams(180, 48).apply { rightMargin = 10 })
+                        if (matches.size > 60) paging.addView(button("NEXT 60  →", true) { runSearch(value, offset + 60) }, LinearLayout.LayoutParams(180, 48))
                         if (paging.childCount > 0) results.addView(paging, LinearLayout.LayoutParams(-1, 64))
                     }
                 }
@@ -1315,12 +1323,23 @@ class MainActivity : AppCompatActivity() {
                 duration = 9000L
                 repeatCount = ValueAnimator.INFINITE
                 interpolator = LinearInterpolator()
-                addUpdateListener { rotationDegrees = it.animatedValue as Float; postInvalidateOnAnimation() }
+                addUpdateListener { rotationDegrees = it.animatedValue as Float; invalidate() }
                 start()
+            }
+            postOnAnimation(spinFrame)
+        }
+
+        private val spinFrame = object : Runnable {
+            override fun run() {
+                if (!isAttachedToWindow) return
+                rotationDegrees = (rotationDegrees + 0.75f) % 360f
+                invalidate()
+                postDelayed(this, 16L)
             }
         }
 
         override fun onDetachedFromWindow() {
+            removeCallbacks(spinFrame)
             spinAnimator?.cancel()
             spinAnimator = null
             super.onDetachedFromWindow()
