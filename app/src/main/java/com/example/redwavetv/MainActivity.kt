@@ -6,6 +6,11 @@ import android.graphics.Paint
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.view.animation.LinearInterpolator
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
+import android.view.animation.LinearInterpolator
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import java.io.File
@@ -636,22 +641,19 @@ class MainActivity : AppCompatActivity() {
         }, LinearLayout.LayoutParams(150, 46).apply { leftMargin = 10 })
         content.addView(modes, LinearLayout.LayoutParams(-1, 52))
         content.addView(label("NOW PLAYING", 12, RED, true), LinearLayout.LayoutParams(-1, 34))
-        val art = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF6A172B.toInt(), 0xFF231D3B.toInt(), 0xFF111722.toInt())).apply { cornerRadius = 22f }
-        }
-        if (track?.artworkPath?.isNotBlank() == true && File(track.artworkPath).exists()) {
-            val cover = ImageView(this).apply { scaleType = ImageView.ScaleType.CENTER_CROP; setImageBitmap(BitmapFactory.decodeFile(track.artworkPath)) }
-            art.addView(cover, LinearLayout.LayoutParams(-1, -1))
-        } else {
-            art.addView(label("♫", 92, WHITE, true).apply { gravity = Gravity.CENTER })
-        }
+        val art = VinylRecordView(this)
+        art.contentDescription = "Rotating vinyl record"
         val density = resources.displayMetrics.density
         val availableWidthDp = (resources.displayMetrics.widthPixels / density).toInt() - 72
         val availableHeightDp = (resources.displayMetrics.heightPixels / density).toInt() - 150
         val coverSize = minOf(availableWidthDp * 0.42f, availableHeightDp * 0.43f).toInt().coerceIn(150, 300)
         content.addView(art, LinearLayout.LayoutParams(coverSize, coverSize).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = 8; bottomMargin = 14 })
+        if (player.isPlaying) ObjectAnimator.ofFloat(art, View.ROTATION, 0f, 360f).apply {
+            duration = 8000L
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = LinearInterpolator()
+            start()
+        }
         content.addView(label(track?.title ?: "Nothing playing", 22, WHITE, true).apply { gravity = Gravity.CENTER; maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 6 })
         content.addView(label(track?.artist ?: "Choose a song from your library", 15, MUTED).apply { gravity = Gravity.CENTER; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }, LinearLayout.LayoutParams(-1, 26))
         content.addView(label(track?.album ?: track?.folder?.trimEnd('/')?.substringAfterLast('/') ?: "", 13, MUTED).apply { gravity = Gravity.CENTER; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }, LinearLayout.LayoutParams(-1, 24))
@@ -1069,6 +1071,33 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         } catch (e: Exception) { toast("Playback error: " + (e.message ?: e.javaClass.simpleName)) }
+    }
+
+    private inner class VinylRecordView(context: android.content.Context) : View(context) {
+        private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+        private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1.5f }
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val cx = width / 2f
+            val cy = height / 2f
+            val radius = minOf(width, height) * 0.47f
+            fill.color = 0xFF090A0D.toInt()
+            canvas.drawCircle(cx, cy, radius, fill)
+            for (i in 1..9) {
+                stroke.color = if (i % 3 == 0) 0xFF555861.toInt() else 0xFF292C33.toInt()
+                stroke.strokeWidth = if (i % 3 == 0) 2f else 1f
+                canvas.drawCircle(cx, cy, radius * (0.52f + i * 0.045f), stroke)
+            }
+            fill.color = 0xFFB8324B.toInt()
+            canvas.drawCircle(cx, cy, radius * 0.34f, fill)
+            fill.color = 0xFFFFB05A.toInt()
+            canvas.drawCircle(cx, cy, radius * 0.055f, fill)
+            fill.color = 0xFFE8D5D0.toInt()
+            fill.textAlign = Paint.Align.CENTER
+            fill.textSize = radius * 0.12f
+            fill.typeface = Typeface.DEFAULT_BOLD
+            canvas.drawText("REDWAVE", cx, cy + radius * 0.20f, fill)
+        }
     }
 
     private fun button(title: String, selected: Boolean, action: () -> Unit): TextView = TextView(this).apply {
