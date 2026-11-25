@@ -350,7 +350,8 @@ class MainActivity : AppCompatActivity() {
         }
         val heading = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         heading.addView(label(title, 13, WHITE, true), LinearLayout.LayoutParams(0, 42, 1f))
-        val actionButton = button(action, false) {
+        lateinit var actionButton: TextView
+        actionButton = button(action, false) {
             if (title == "RANDOM FROM YOUR LIBRARY") showRandomDropdown(items, actionButton)
             else onClick()
         }
