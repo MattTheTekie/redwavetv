@@ -22,6 +22,7 @@ import android.view.ViewGroup
 import android.os.Handler
 import android.os.Looper
 import android.widget.SeekBar
+import android.widget.FrameLayout
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ImageView
@@ -70,6 +71,8 @@ data class LyricLine(val timeMs: Long, val text: String)
 
 class MainActivity : AppCompatActivity() {
     private lateinit var content: LinearLayout
+    private lateinit var appFrame: FrameLayout
+    private var startupOverlay: View? = null
     private lateinit var contentScroll: ScrollView
     private var miniPlayPause: TextView? = null
     private var playerPlayPause: TextView? = null
@@ -221,50 +224,39 @@ class MainActivity : AppCompatActivity() {
                 homeDataLoaded = true
                 if (playingTrack == null && restored != null) playingTrack = restored
                 startupLoadingActive = false
+                dismissStartupLoading()
                 showHome()
             }
         }
     }
 
     private fun showStartupLoading() {
-        content.removeAllViews()
-        content.setPadding(24, 12, 24, 12)
-        content.gravity = Gravity.CENTER
-        val panel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(32, 24, 32, 24)
-        }
-        val mark = label("♫", 76, RED, true).apply { gravity = Gravity.CENTER }
-        panel.addView(mark, LinearLayout.LayoutParams(-1, 100))
-        val brand = label("REDWAVE", 34, WHITE, true).apply {
-            gravity = Gravity.CENTER
-            letterSpacing = 0.16f
-        }
-        panel.addView(brand, LinearLayout.LayoutParams(-1, 52))
-        panel.addView(label("YOUR MUSIC. YOUR WAY.", 12, MUTED, true).apply {
-            gravity = Gravity.CENTER
-            letterSpacing = 0.22f
-        }, LinearLayout.LayoutParams(-1, 30))
-        val progress = android.widget.ProgressBar(this).apply {
-            isIndeterminate = true
-            indeterminateTintList = android.content.res.ColorStateList.valueOf(RED)
-        }
-        panel.addView(progress, LinearLayout.LayoutParams(48, 48).apply { topMargin = 30; bottomMargin = 18 })
-        panel.addView(label("PREPARING YOUR MUSIC LIBRARY", 12, MUTED, true).apply {
-            gravity = Gravity.CENTER
-            letterSpacing = 0.08f
-        }, LinearLayout.LayoutParams(-1, 28))
-        content.addView(panel, LinearLayout.LayoutParams(-1, -1))
-        ObjectAnimator.ofFloat(mark, View.ALPHA, 0.55f, 1f).apply {
-            duration = 950L
-            repeatMode = ValueAnimator.REVERSE
-            repeatCount = ValueAnimator.INFINITE
-            start()
-        }
+        if (!::appFrame.isInitialized) return
+        startupOverlay?.let { appFrame.removeView(it) }
+        val overlay = FrameLayout(this).apply { setBackgroundColor(BG) }
+        val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; setPadding(32, 24, 32, 24) }
+        val mark = label("♫", 82, RED, true).apply { gravity = Gravity.CENTER }
+        panel.addView(mark, LinearLayout.LayoutParams(-1, 108))
+        panel.addView(label("REDWAVE", 36, WHITE, true).apply { gravity = Gravity.CENTER; letterSpacing = 0.18f }, LinearLayout.LayoutParams(-1, 56))
+        panel.addView(label("YOUR MUSIC. YOUR WAY.", 12, MUTED, true).apply { gravity = Gravity.CENTER; letterSpacing = 0.22f }, LinearLayout.LayoutParams(-1, 30))
+        val progress = android.widget.ProgressBar(this).apply { isIndeterminate = true; indeterminateTintList = android.content.res.ColorStateList.valueOf(RED) }
+        panel.addView(progress, LinearLayout.LayoutParams(48, 48).apply { topMargin = 32; bottomMargin = 20 })
+        panel.addView(label("PREPARING YOUR MUSIC LIBRARY", 12, MUTED, true).apply { gravity = Gravity.CENTER; letterSpacing = 0.08f }, LinearLayout.LayoutParams(-1, 28))
+        overlay.addView(panel, FrameLayout.LayoutParams(-1, -1, Gravity.CENTER))
+        appFrame.addView(overlay, FrameLayout.LayoutParams(-1, -1))
+        overlay.bringToFront()
+        startupOverlay = overlay
+        ObjectAnimator.ofFloat(mark, View.ALPHA, 0.45f, 1f).apply { duration = 950L; repeatMode = ValueAnimator.REVERSE; repeatCount = ValueAnimator.INFINITE; start() }
+    }
+
+    private fun dismissStartupLoading() {
+        val overlay = startupOverlay ?: return
+        (overlay.parent as? ViewGroup)?.removeView(overlay)
+        startupOverlay = null
     }
 
     private fun showStartupRecovery(error: Exception) {
+        dismissStartupLoading()
         if (!::content.isInitialized) {
             android.util.Log.e("RedWaveStartup", "Content view is not initialized", error)
             return
@@ -364,7 +356,9 @@ class MainActivity : AppCompatActivity() {
         }
         bottomPlayer = LinearLayout(this).apply { id = View.generateViewId(); orientation = LinearLayout.VERTICAL; setPadding(14, 6, 14, 6); setBackgroundColor(0xFF171A22.toInt()); descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS }
         root.addView(bottomPlayer, LinearLayout.LayoutParams(-1, 66))
-        setContentView(root)
+        appFrame = FrameLayout(this)
+        appFrame.addView(root, FrameLayout.LayoutParams(-1, -1))
+        setContentView(appFrame)
         addNowPlaying()
     }
 
