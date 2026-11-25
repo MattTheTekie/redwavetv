@@ -823,8 +823,11 @@ class MainActivity : AppCompatActivity() {
         content.addView(label("A shuffled selection from your scanned music — select any song to play", 13, MUTED), LinearLayout.LayoutParams(-1, 34))
         val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val shuffleButton = button("▶  SHUFFLE PLAY", true) { }
-        val refreshButton = button("↻  REFRESH LIST", false) { showRandomSongs() }
-        shuffleButton.isEnabled = false
+        val refreshButton = button("↻  REFRESH LIST", false) {
+            randomSelectionLoaded = false
+            homeRandomTracks = emptyList()
+            showRandomSongs()
+        }
         controls.addView(shuffleButton, LinearLayout.LayoutParams(210, 46).apply { rightMargin = 12 })
         controls.addView(refreshButton, LinearLayout.LayoutParams(180, 46))
         content.addView(controls, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 8 })
@@ -835,30 +838,39 @@ class MainActivity : AppCompatActivity() {
         addNowPlaying()
         focusContent()
 
-        // Fetch the random selection off the UI thread so the full-song list opens
-        // immediately even on slower Android TV boxes and large SMB libraries.
+        fun render(songs: List<Track>) {
+            if (isFinishing || isDestroyed || currentScreen != "RANDOM_SONGS") return
+            countLabel.text = "${songs.size} songs"
+            shuffleButton.isEnabled = songs.isNotEmpty()
+            shuffleButton.setOnClickListener {
+                if (songs.isNotEmpty()) playTrack(songs.random(), songs.shuffled())
+            }
+            results.removeAllViews()
+            if (songs.isEmpty()) {
+                results.addView(label("No scanned tracks yet. Connect to your SMB share and scan your music library first.", 14, MUTED))
+            } else {
+                songs.forEach { addTrackRow(it, songs, results) }
+            }
+            focusContent()
+        }
+
+        // Home and this screen intentionally share the same cached selection.
+        if (randomSelectionLoaded) {
+            render(homeRandomTracks)
+            return
+        }
         thread(name = "redwave-random-list") {
-            val songs = try {
-                libraryStore.loadRandomTracks(300).distinctBy {
-                    listOf(it.title.trim().lowercase(), it.artist.trim().lowercase(), it.album.trim().lowercase(), it.folder.trimEnd('/').lowercase())
-                }
-            } catch (e: Exception) {
+            val songs = try { libraryStore.loadRandomTracks(300) } catch (e: Exception) {
                 android.util.Log.e("RedWaveRandom", "Could not load random songs", e)
                 emptyList()
             }
             runOnUiThread {
-                if (isFinishing || isDestroyed || currentScreen != "RANDOM_SONGS") return@runOnUiThread
-                countLabel.text = "${songs.size} songs"
-                shuffleButton.isEnabled = songs.isNotEmpty()
-                shuffleButton.setOnClickListener {
-                    if (songs.isNotEmpty()) playTrack(songs.random(), songs.shuffled())
+                homeRandomTracks = songs
+                randomSelectionLoaded = true
+                if (!homeDataLoaded) {
+                    homeDataLoaded = false
                 }
-                if (songs.isEmpty()) {
-                    results.addView(label("No scanned tracks yet. Connect to your SMB share and scan your music library first.", 14, MUTED))
-                } else {
-                    songs.forEach { addTrackRow(it, songs, results) }
-                }
-                focusContent()
+                render(songs)
             }
         }
     }
