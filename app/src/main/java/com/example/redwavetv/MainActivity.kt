@@ -316,6 +316,7 @@ class MainActivity : AppCompatActivity() {
         val groups = safeLoadAlbumGroups(120).mapNotNull { group -> try { group.first to libraryStore.tracksInGroup(group.first, 1) } catch (_: Exception) { null } }
         if (groups.isEmpty()) showEmpty() else addArtworkGrid(groups)
         addNowPlaying()
+        focusContent()
     }
 
     private fun showFolders() {
@@ -328,6 +329,7 @@ class MainActivity : AppCompatActivity() {
         content.addView(label("Connect to an SMB share to browse folders before scanning.", 14, MUTED))
         content.addView(button("＋  CONNECT TO SMB", true) { showSmbDialog() }, LinearLayout.LayoutParams(240, 50))
         addNowPlaying()
+        focusContent()
     }
 
     private fun showRemoteFolder(path: String, offset: Int = 0) {
@@ -406,6 +408,7 @@ class MainActivity : AppCompatActivity() {
         page.forEach { addTrackRow(it, page) }
         if (safeTrackCount() > page.size) content.addView(button("LOAD NEXT 100", false) { showQueuePage(100) }, LinearLayout.LayoutParams(220, 48))
         addNowPlaying()
+        focusContent()
     }
 
     private fun showQueuePage(offset: Int) {
@@ -514,6 +517,7 @@ class MainActivity : AppCompatActivity() {
         content.addView(label("Saved play history • ${recent.size} shown", 13, MUTED), LinearLayout.LayoutParams(-1, 30))
         if (recent.isEmpty()) content.addView(label("Your played songs will appear here. History is saved on this device.", 14, MUTED)) else recent.forEach { addTrackRow(it) }
         addNowPlaying()
+        focusContent()
     }
 
     private fun showFavourites() {
@@ -524,6 +528,7 @@ class MainActivity : AppCompatActivity() {
         val favourites = try { libraryStore.loadFavorites(100) } catch (_: Exception) { emptyList() }
         if (favourites.isEmpty()) content.addView(label("Press ☆ beside a song to save it here.", 14, MUTED)) else favourites.forEach { addTrackRow(it) }
         addNowPlaying()
+        focusContent()
     }
 
     private fun addNowPlaying() {
@@ -785,6 +790,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showSmbDialog() {
+        currentScreen = "SMB"
+        updateNavigation()
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(20, 6, 20, 6) }
         val host = field("Server IP or hostname, e.g. 192.168.1.20")
         val share = field("Share name, e.g. Music")
