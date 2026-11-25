@@ -50,18 +50,21 @@ import java.util.concurrent.Executors
 private const val BG = 0xFF0B0C10.toInt()
 private const val SURFACE = 0xFF171A22.toInt()
 private const val SURFACE_HI = 0xFF242A38.toInt()
-private const val RED = 0xFFFF4057.toInt()
+private const val RED = 0xFFE50914.toInt()
 private const val WHITE = 0xFFF5F6FA.toInt()
 private const val MUTED = 0xFF9BA3B4.toInt()
 private const val GREEN = 0xFF55D6A0.toInt()
-private const val ORANGE = 0xFFFF9F1C.toInt()
-private const val ORANGE_HI = 0xFFFFB347.toInt()
+private const val ORANGE = 0xFFB85C00.toInt()
+private const val ORANGE_HI = 0xFFD97706.toInt()
 
 data class Track(val title: String, val path: String, val folder: String, val artist: String = "Unknown Artist", val album: String = "", val artworkPath: String = "")
 data class LyricLine(val timeMs: Long, val text: String)
 
 class MainActivity : AppCompatActivity() {
     private lateinit var content: LinearLayout
+    private lateinit var contentScroll: ScrollView
+    private var miniPlayPause: TextView? = null
+    private var playerPlayPause: TextView? = null
     private lateinit var bottomPlayer: LinearLayout
     private lateinit var statusText: TextView
     private lateinit var player: ExoPlayer
@@ -99,8 +102,10 @@ class MainActivity : AppCompatActivity() {
         player = ExoPlayer.Builder(this, DefaultRenderersFactory(this).setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)).build()
         player.addListener(object : com.google.android.exoplayer2.Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
+                updatePlaybackButtons()
                 if (playbackState == com.google.android.exoplayer2.Player.STATE_ENDED && repeatMode != 1) playNext()
             }
+            override fun onIsPlayingChanged(isPlaying: Boolean) { updatePlaybackButtons() }
             override fun onPlayerError(error: com.google.android.exoplayer2.PlaybackException) {
                 val trackName = playingTrack?.title ?: "Track"
                 android.util.Log.e("RedWavePlayer", "Playback failed for $trackName: ${error.errorCodeName}", error)
@@ -139,7 +144,7 @@ class MainActivity : AppCompatActivity() {
             Triple("⌂  HOME", "HOME") { showHome() },
             Triple("♫  LIBRARY", "QUEUE") { showQueue() },
             Triple("⌕  SEARCH", "SEARCH") { showSearch() },
-            Triple("▤  FOLDERS", "FOLDERS") { showFolders() },
+            Triple("📁  FOLDERS", "FOLDERS") { showFolders() },
             Triple("⚙  SETTINGS", "SETTINGS") { showSettings() }
         )
         tabs.forEach { tab ->
@@ -166,8 +171,15 @@ class MainActivity : AppCompatActivity() {
         top.addView(statusText, LinearLayout.LayoutParams(-2, 30))
         root.addView(top)
         content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 8, 24, 14) }
-        val scroll = ScrollView(this).apply { id = View.generateViewId(); isFillViewport = true; isFocusable = false; addView(content) }
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        contentScroll = ScrollView(this).apply {
+            id = View.generateViewId()
+            isFillViewport = true
+            isSmoothScrollingEnabled = true
+            isFocusable = false
+            descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+            addView(content)
+        }
+        root.addView(contentScroll, LinearLayout.LayoutParams(-1, 0, 1f))
         bottomPlayer = LinearLayout(this).apply { id = View.generateViewId(); orientation = LinearLayout.VERTICAL; setPadding(14, 6, 14, 6); setBackgroundColor(0xFF171A22.toInt()); descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS }
         root.addView(bottomPlayer, LinearLayout.LayoutParams(-1, 66))
         setContentView(root)
@@ -249,6 +261,7 @@ class MainActivity : AppCompatActivity() {
     private fun showHome() {
         currentScreen = "HOME"
         content.removeAllViews()
+        content.setPadding(24, 8, 24, 18)
         updateStatus()
         updateNavigation()
         content.addView(label("Listen Now", 32, WHITE, true), LinearLayout.LayoutParams(-1, 48))
@@ -256,8 +269,8 @@ class MainActivity : AppCompatActivity() {
         val hero = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(22, 16, 22, 16)
-            background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(0xFF522638.toInt(), 0xFF30243F.toInt(), SURFACE)).apply { cornerRadius = 18f }
+            setPadding(24, 18, 24, 18)
+            background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(0xFF54171D.toInt(), 0xFF302027.toInt(), SURFACE)).apply { cornerRadius = 18f }
         }
         val heroCopy = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         heroCopy.addView(label("ALL YOUR MUSIC.\nONE BEAUTIFUL LIBRARY.", 25, WHITE, true), LinearLayout.LayoutParams(-1, 78))
@@ -265,27 +278,53 @@ class MainActivity : AppCompatActivity() {
         val openLibrary = button(if (smbContext == null) "OPEN SETTINGS" else "OPEN LIBRARY", false) {
             if (smbContext != null) showQueue() else showSettings()
         }.apply {
+            textSize = 14f
             background = rounded(ORANGE, 10)
-            setOnFocusChangeListener { view, focused -> view.background = rounded(if (focused) ORANGE_HI else ORANGE, 10) }
+            setTextColor(0xFFFFF4E8.toInt())
+            setOnFocusChangeListener { view, focused ->
+                view.background = rounded(if (focused) ORANGE_HI else ORANGE, 10)
+                (view as TextView).setTextColor(0xFFFFF4E8.toInt())
+            }
         }
-        heroCopy.addView(openLibrary, LinearLayout.LayoutParams(190, 40).apply { topMargin = 12 })
+        heroCopy.addView(openLibrary, LinearLayout.LayoutParams(210, 48).apply { topMargin = 14 })
         hero.addView(heroCopy, LinearLayout.LayoutParams(0, -2, 1f))
-        hero.addView(label("♫", 58, 0xFFFFA4B5.toInt(), true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(112, 112))
-        content.addView(hero, LinearLayout.LayoutParams(-1, 172).apply { topMargin = 10; bottomMargin = 18 })
+        hero.addView(label("♫", 58, 0xFFFF7777.toInt(), true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(112, 112))
+        content.addView(hero, LinearLayout.LayoutParams(-1, 180).apply { topMargin = 10; bottomMargin = 22 })
         if (isScanning) content.addView(label("Scanning network library…  " + tracks.size + " found", 13, GREEN, true), LinearLayout.LayoutParams(-1, 36))
         val recent = try { libraryStore.loadRecent(8) } catch (_: Exception) { emptyList() }
         val favourites = try { libraryStore.loadFavorites(8) } catch (_: Exception) { emptyList() }
-        sectionTitle("RECENTLY PLAYED", "SEE ALL") { showRecents() }
-        if (recent.isEmpty()) content.addView(label("Play a song and it will appear here.", 13, MUTED), LinearLayout.LayoutParams(-1, 34)) else recent.take(5).forEach { addTrackRow(it, recent) }
         val randomPicks = try { libraryStore.loadRandomTracks(12) } catch (_: Exception) { emptyList() }
-        sectionTitle("RANDOM FROM YOUR LIBRARY", "SEE ALL SONGS") { showQueue() }
-        if (randomPicks.isEmpty()) content.addView(label("Connect and scan your SMB library to get random picks here.", 13, MUTED), LinearLayout.LayoutParams(-1, 34)) else randomPicks.take(6).forEach { addTrackRow(it, randomPicks) }
-        sectionTitle("FAVOURITES", "SEE ALL") { showFavourites() }
-        if (favourites.isEmpty()) content.addView(label("Save songs with the ☆ button to build your favourites.", 13, MUTED), LinearLayout.LayoutParams(-1, 34)) else favourites.take(5).forEach { addTrackRow(it, favourites) }
         val latest = safeLoadTracks(8)
-        if (latest.isNotEmpty()) { sectionTitle("YOUR LIBRARY", "SEE ALL SONGS") { showQueue() }; latest.take(5).forEach { addTrackRow(it, latest) } }
+        val columns = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.TOP }
+        val left = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        addHomeSection(left, "RECENTLY PLAYED", "SEE ALL", recent, "Play a song and it will appear here.") { showRecents() }
+        addHomeSection(left, "FAVOURITES", "SEE ALL", favourites, "Save songs with ☆ to build your favourites.") { showFavourites() }
+        addHomeSection(right, "RANDOM FROM YOUR LIBRARY", "SEE ALL SONGS", randomPicks, "Connect and scan your SMB library to get random picks.") { showQueue() }
+        if (latest.isNotEmpty()) addHomeSection(right, "YOUR LIBRARY", "SEE ALL SONGS", latest, "Your scanned tracks will appear here.") { showQueue() }
+        columns.addView(left, LinearLayout.LayoutParams(0, -2, 1f).apply { rightMargin = 12 })
+        columns.addView(right, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = 12 })
+        content.addView(columns, LinearLayout.LayoutParams(-1, -2))
         addNowPlaying()
         focusContent()
+    }
+
+    private fun addHomeSection(parent: LinearLayout, title: String, action: String, items: List<Track>, emptyText: String, onClick: () -> Unit) {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(14, 10, 14, 12)
+            background = rounded(SURFACE, 14)
+        }
+        val heading = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        heading.addView(label(title, 13, WHITE, true), LinearLayout.LayoutParams(0, 42, 1f))
+        heading.addView(button(action, false, onClick), LinearLayout.LayoutParams(-2, 34))
+        card.addView(heading)
+        if (items.isEmpty()) {
+            card.addView(label(emptyText, 12, MUTED), LinearLayout.LayoutParams(-1, 58))
+        } else {
+            items.take(5).forEach { addTrackRow(it, items, card) }
+        }
+        parent.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 16 })
     }
 
     private fun sectionTitle(title: String, action: String, onClick: () -> Unit) {
@@ -511,21 +550,21 @@ class MainActivity : AppCompatActivity() {
         content.addView(box, LinearLayout.LayoutParams(-1, 120).apply { topMargin = 12 })
     }
 
-    private fun addTrackRow(track: Track, queue: List<Track>? = null) {
+    private fun addTrackRow(track: Track, queue: List<Track>? = null, parent: LinearLayout = content) {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(12, 4, 12, 4)
-            background = rounded(SURFACE, 10)
+            setPadding(8, 3, 8, 3)
+            background = rounded(SURFACE_HI, 8)
             isFocusable = true
             isClickable = true
             setOnFocusChangeListener { v, focus -> v.background = rounded(if (focus) RED else SURFACE, 10) }
             setOnClickListener { playTrack(track, queue) }
         }
-        row.addView(label("♫", 22, RED, true), LinearLayout.LayoutParams(44, 48))
+        row.addView(label("♫", 18, RED, true), LinearLayout.LayoutParams(30, 44))
         val names = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL }
-        names.addView(label(track.title, 15, WHITE, true))
-        names.addView(label(track.artist + if (track.album.isNotBlank()) " · " + track.album else " · " + track.folder.trimEnd('/').substringAfterLast('/'), 11, MUTED))
+        names.addView(label(track.title, 13, WHITE, true).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
+        names.addView(label(track.artist + if (track.album.isNotBlank()) " · " + track.album else " · " + track.folder.trimEnd('/').substringAfterLast('/'), 10, MUTED).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
         row.addView(names, LinearLayout.LayoutParams(0, 54, 1f))
         val favorite = try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }
         row.addView(button(if (favorite) "★" else "☆", false) {
@@ -631,7 +670,7 @@ class MainActivity : AppCompatActivity() {
             nextFocusRightId = View.NO_ID
         }
         val previous = button("|◀", false) { playPrevious(); addNowPlaying() }.apply { id = View.generateViewId() }
-        val playPause = button(if (player.isPlaying) "Ⅱ" else "▶", false) { if (player.isPlaying) player.pause() else player.play(); addNowPlaying() }.apply { id = View.generateViewId() }
+        val playPause = button(if (player.playWhenReady) "Ⅱ" else "▶", false) { player.playWhenReady = !player.playWhenReady; updatePlaybackButtons() }.apply { id = View.generateViewId(); miniPlayPause = this }
         val next = button("▶|", false) { playNext(); addNowPlaying() }.apply { id = View.generateViewId() }
         openPlayer.nextFocusRightId = previous.id
         previous.nextFocusLeftId = openPlayer.id
@@ -645,6 +684,12 @@ class MainActivity : AppCompatActivity() {
         bar.addView(playPause, LinearLayout.LayoutParams(58, 46))
         bar.addView(next, LinearLayout.LayoutParams(58, 46))
         bottomPlayer.addView(bar, LinearLayout.LayoutParams(-1, 54))
+    }
+
+    private fun updatePlaybackButtons() {
+        val label = if (player.playWhenReady) "Ⅱ  PAUSE" else "▶  PLAY"
+        playerPlayPause?.text = label
+        miniPlayPause?.text = if (player.playWhenReady) "Ⅱ" else "▶"
     }
 
     private fun refreshScreen() {
@@ -727,7 +772,7 @@ class MainActivity : AppCompatActivity() {
         content.addView(label(track?.title ?: "Nothing playing", 22, WHITE, true).apply { gravity = Gravity.CENTER; maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 6 })
         content.addView(label(track?.artist ?: "Choose a song from your library", 15, MUTED).apply { gravity = Gravity.CENTER; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }, LinearLayout.LayoutParams(-1, 26))
         content.addView(label(track?.album ?: track?.folder?.trimEnd('/')?.substringAfterLast('/') ?: "", 13, MUTED).apply { gravity = Gravity.CENTER; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }, LinearLayout.LayoutParams(-1, 24))
-        val seek = SeekBar(this)
+        val seek = SeekBar(this).apply { isFocusable = true; isFocusableInTouchMode = true }
         seek.max = 1000
         progressSeekBar = seek
         progressHandler.removeCallbacks(progressUpdater)
@@ -756,7 +801,7 @@ class MainActivity : AppCompatActivity() {
         }, LinearLayout.LayoutParams(-1, 46))
         val controls = LinearLayout(this).apply { gravity = Gravity.CENTER; orientation = LinearLayout.HORIZONTAL }
         controls.addView(button("PREVIOUS", false) { playPrevious() }, LinearLayout.LayoutParams(120, 54))
-        controls.addView(button(if (player.isPlaying) "Ⅱ  PAUSE" else "▶  PLAY", true) { if (player.isPlaying) player.pause() else player.play(); showPlayer() }, LinearLayout.LayoutParams(150, 54).apply { leftMargin = 12; rightMargin = 12 })
+        controls.addView(button(if (player.playWhenReady) "Ⅱ  PAUSE" else "▶  PLAY", true) { player.playWhenReady = !player.playWhenReady; updatePlaybackButtons() }, LinearLayout.LayoutParams(150, 54).apply { leftMargin = 12; rightMargin = 12 }.also { playerPlayPause = controls.getChildAt(1) as? TextView })
         controls.addView(button("NEXT", false) { playNext() }, LinearLayout.LayoutParams(120, 54))
         content.addView(controls, LinearLayout.LayoutParams(-1, 62))
         content.addView(button("OPEN LYRICS", false) { showLyrics() }, LinearLayout.LayoutParams(210, 40).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = 4 })
