@@ -639,47 +639,69 @@ class MainActivity : AppCompatActivity() {
         currentScreen = "QUEUE"
         updateNavigation()
         content.removeAllViews()
+        content.setPadding(24, 12, 24, 18)
         content.addView(label("All tracks", 29, WHITE, true), LinearLayout.LayoutParams(-1, 58))
-        val indexed = safeTrackCount()
-        content.addView(label("$indexed tracks indexed • showing library page 1", 13, MUTED), LinearLayout.LayoutParams(-1, 34))
-        var page = safeLoadTracks(limit = 100)
-        if (page.isEmpty() && indexed > 0L) {
-            page = try { libraryStore.loadTracks(limit = 100, offset = 0) } catch (e: Exception) {
-                android.util.Log.e("RedWaveLibrary", "Could not load indexed tracks", e)
-                emptyList()
-            }
-        }
-        if (page.isEmpty()) {
-            val summary = try { libraryStore.scanSummary() } catch (_: Exception) { null }
-            val empty = panel()
-            empty.addView(label(if (indexed > 0L) "Tracks are indexed, but could not be loaded" else "No tracks indexed yet", 19, WHITE, true))
-            empty.addView(label(if (indexed > 0L) "The database reports $indexed tracks. Try refreshing the library; see scan details below if the list remains empty." else "Connect to your SMB share and scan your music folders.", 13, MUTED))
-            content.addView(empty, LinearLayout.LayoutParams(-1, 120).apply { topMargin = 12 })
-            content.addView(label("Database: $indexed tracks" + (summary?.let { " • $it" } ?: " • no scan record"), 12, ORANGE), LinearLayout.LayoutParams(-1, -2).apply { topMargin = 8 })
-            content.addView(button("REFRESH LIBRARY", true) { tracks.clear(); tracks.addAll(safeLoadTracks(100)); showQueue() }, LinearLayout.LayoutParams(220, 48))
-            if (smbContext != null && indexed == 0L) content.addView(button("RESCAN LIBRARY", false) { scanShare() }, LinearLayout.LayoutParams(220, 48))
-        } else {
-            tracks.clear()
-            tracks.addAll(page)
-        }
-        page.forEach { addTrackRow(it, page) }
-        if (safeTrackCount() > page.size) content.addView(button("LOAD NEXT 100", false) { showQueuePage(100) }, LinearLayout.LayoutParams(220, 48))
+        val status = label("Opening your library…", 13, MUTED)
+        content.addView(status, LinearLayout.LayoutParams(-1, 34))
         addNowPlaying()
         focusContent()
+
+        // SQLite work (including favourite lookups) stays off the UI thread.
+        thread(name = "redwave-library-page") {
+            val indexed = safeTrackCount()
+            val page = safeLoadTracks(limit = 100, offset = 0)
+            val summary = if (page.isEmpty()) try { libraryStore.scanSummary() } catch (_: Exception) { null } else null
+            val favoritePaths = try { libraryStore.loadFavorites(1000).map { it.path }.toSet() } catch (_: Exception) { emptySet<String>() }
+            runOnUiThread {
+                if (isFinishing || isDestroyed || currentScreen != "QUEUE") return@runOnUiThread
+                status.text = "$indexed tracks indexed • showing library page 1"
+                content.removeView(status)
+                content.addView(label("$indexed tracks indexed • showing library page 1", 13, MUTED), 1)
+                if (page.isEmpty()) {
+                    val empty = panel()
+                    empty.addView(label(if (indexed > 0L) "Tracks are indexed, but could not be loaded" else "No tracks indexed yet", 19, WHITE, true))
+                    empty.addView(label(if (indexed > 0L) "The database reports $indexed tracks, but no readable tracks were returned. Check scan details or rescan." else "Connect to your SMB share and scan your music folders.", 13, MUTED))
+                    content.addView(empty, LinearLayout.LayoutParams(-1, 120).apply { topMargin = 12 })
+                    content.addView(label("Database: $indexed tracks" + (summary?.let { " • $it" } ?: " • no scan record"), 12, ORANGE), LinearLayout.LayoutParams(-1, -2).apply { topMargin = 8 })
+                    content.addView(button("REFRESH LIBRARY", true) { showQueue() }, LinearLayout.LayoutParams(220, 48))
+                    if (smbContext != null && indexed == 0L) content.addView(button("RESCAN LIBRARY", false) { scanShare() }, LinearLayout.LayoutParams(220, 48))
+                } else {
+                    tracks.clear()
+                    tracks.addAll(page)
+                    page.forEach { addTrackRow(it, page, favoriteOverride = favoritePaths.contains(it.path)) }
+                    if (indexed > page.size) content.addView(button("LOAD NEXT 100", false) { showQueuePage(100) }, LinearLayout.LayoutParams(220, 48))
+                }
+                addNowPlaying()
+                focusContent()
+            }
+        }
     }
 
     private fun showQueuePage(offset: Int) {
         currentScreen = "QUEUE"
+        updateNavigation()
         content.removeAllViews()
+        content.setPadding(24, 12, 24, 18)
         content.addView(label("All tracks", 29, WHITE, true), LinearLayout.LayoutParams(-1, 58))
-        val total = safeTrackCount()
-        content.addView(label("$total tracks indexed • page ${offset / 100 + 1}", 13, MUTED), LinearLayout.LayoutParams(-1, 34))
-        val page = safeLoadTracks(limit = 100, offset = offset)
-        if (page.isEmpty()) showEmpty()
-        page.forEach { addTrackRow(it) }
-        if (offset > 0) content.addView(button("PREVIOUS 100", false) { showQueuePage((offset - 100).coerceAtLeast(0)) }, LinearLayout.LayoutParams(220, 48))
-        if (offset + page.size < total) content.addView(button("NEXT 100", false) { showQueuePage(offset + 100) }, LinearLayout.LayoutParams(220, 48))
+        val status = label("Loading page…", 13, MUTED)
+        content.addView(status, LinearLayout.LayoutParams(-1, 34))
         addNowPlaying()
+        thread(name = "redwave-library-page") {
+            val total = safeTrackCount()
+            val page = safeLoadTracks(limit = 100, offset = offset)
+            val favoritePaths = try { libraryStore.loadFavorites(1000).map { it.path }.toSet() } catch (_: Exception) { emptySet<String>() }
+            runOnUiThread {
+                if (isFinishing || isDestroyed || currentScreen != "QUEUE") return@runOnUiThread
+                status.text = "$total tracks indexed • page ${offset / 100 + 1}"
+                if (page.isEmpty()) {
+                    content.addView(label("No tracks on this page.", 14, MUTED))
+                } else page.forEach { addTrackRow(it, favoriteOverride = favoritePaths.contains(it.path)) }
+                if (offset > 0) content.addView(button("PREVIOUS 100", false) { showQueuePage((offset - 100).coerceAtLeast(0)) }, LinearLayout.LayoutParams(220, 48))
+                if (offset + page.size < total) content.addView(button("NEXT 100", false) { showQueuePage(offset + 100) }, LinearLayout.LayoutParams(220, 48))
+                addNowPlaying()
+                focusContent()
+            }
+        }
     }
 
     private fun showTrackList(title: String, songs: List<Track>) {
