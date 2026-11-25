@@ -720,6 +720,9 @@ class MainActivity : AppCompatActivity() {
                 val row = label(line.text, 20, MUTED, true)
                 row.gravity = Gravity.CENTER
                 row.setPadding(12, 12, 12, 12)
+                row.isFocusable = true
+                row.isFocusableInTouchMode = true
+                row.setOnFocusChangeListener { view, focused -> view.setBackgroundColor(if (focused) SURFACE_HI else android.graphics.Color.TRANSPARENT) }
                 lyricColumn.addView(row, LinearLayout.LayoutParams(-1, -2))
             }
         }
