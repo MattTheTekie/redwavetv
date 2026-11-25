@@ -146,6 +146,7 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         )
     }
     fun loadRecent(limit: Int = 100): List<Track> = queryTrackRows("SELECT t.title,t.path,t.folder,t.artist,t.album,t.artwork FROM tracks t INNER JOIN play_history h ON h.path=t.path ORDER BY h.played_at DESC LIMIT ?", arrayOf(limit.toString()), limit)
+    fun loadTrack(path: String): Track? = queryTrackRows("SELECT title,path,folder,artist,album,artwork FROM tracks WHERE path=? LIMIT 1", arrayOf(path), 1).firstOrNull()
     fun loadFavorites(limit: Int = 100): List<Track> = queryTrackRows("SELECT t.title,t.path,t.folder,t.artist,t.album,t.artwork FROM tracks t INNER JOIN favorites f ON f.path=t.path ORDER BY t.title COLLATE NOCASE LIMIT ?", arrayOf(limit.toString()), limit)
     fun loadRandomTracks(limit: Int = 300, excludePath: String = ""): List<Track> {
         if (limit <= 0) return emptyList()
