@@ -84,6 +84,7 @@ class MainActivity : AppCompatActivity() {
     private var lyricsLoadingPath = ""
     private var playerLyricLine: TextView? = null
     private var playerLyricViews: List<TextView> = emptyList()
+    private var recordAnimator: ObjectAnimator? = null
     private val searchExecutor = Executors.newSingleThreadExecutor()
     private val searchHandler = Handler(Looper.getMainLooper())
     private var searchGeneration = 0
