@@ -394,7 +394,7 @@ class MainActivity : AppCompatActivity() {
                 val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
                 addHomeSection(left, "RECENTLY PLAYED", "SEE ALL", recent, "Play a song and it will appear here.", favouritePaths) { showRecents() }
                 addHomeSection(left, "FAVOURITES", "SEE ALL", favourites, "Save songs with ☆ to build your favourites.", favouritePaths) { showFavourites() }
-                addHomeSection(right, "RANDOM FROM YOUR LIBRARY", "SHOW SONGS", randomPicks, "Discover a fresh shuffled selection from your scanned music library.", favouritePaths) { }
+                addHomeSection(right, "RANDOM FROM YOUR LIBRARY", "SHOW SONGS", randomPicks, "Discover a fresh shuffled selection from your scanned music library.", favouritePaths) { showRandomSongs() }
                 if (latest.isNotEmpty()) addHomeSection(right, "YOUR LIBRARY", "SEE ALL SONGS", latest, "Your scanned tracks will appear here.", favouritePaths) { showQueue() }
                 columns.addView(left, LinearLayout.LayoutParams(0, -2, 1f).apply { rightMargin = 18 })
                 columns.addView(right, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = 18 })
@@ -413,10 +413,7 @@ class MainActivity : AppCompatActivity() {
         val heading = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         heading.addView(label(title, 13, WHITE, true), LinearLayout.LayoutParams(0, 42, 1f))
         lateinit var actionButton: TextView
-        actionButton = button(action, false) {
-            if (title == "RANDOM FROM YOUR LIBRARY") showRandomSongs()
-            else onClick()
-        }
+        actionButton = button(action, false, onClick)
         heading.addView(actionButton, LinearLayout.LayoutParams(-2, 34))
         card.addView(heading)
         if (items.isEmpty()) {
@@ -777,30 +774,49 @@ class MainActivity : AppCompatActivity() {
         currentScreen = "RANDOM_SONGS"
         updateNavigation()
         content.removeAllViews()
+        content.setPadding(24, 12, 24, 18)
         content.addView(label("Random from your library", 28, WHITE, true), LinearLayout.LayoutParams(-1, 58))
-        content.addView(label("All songs in this shuffled selection", 13, MUTED), LinearLayout.LayoutParams(-1, 30))
-        val songs = try {
-            libraryStore.loadRandomTracks(300).distinctBy {
-                listOf(it.title.trim().lowercase(), it.artist.trim().lowercase(), it.album.trim().lowercase(), it.folder.trimEnd('/').lowercase())
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("RedWaveRandom", "Could not load random songs", e)
-            emptyList()
-        }
+        content.addView(label("A shuffled selection from your scanned music — select any song to play", 13, MUTED), LinearLayout.LayoutParams(-1, 34))
         val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        controls.addView(button("▶  SHUFFLE PLAY", true) {
-            if (songs.isNotEmpty()) playTrack(songs.random(), songs.shuffled())
-        }, LinearLayout.LayoutParams(210, 46).apply { rightMargin = 12 })
-        controls.addView(button("↻  REFRESH LIST", false) { showRandomSongs() }, LinearLayout.LayoutParams(180, 46))
+        val shuffleButton = button("▶  SHUFFLE PLAY", true) { }
+        val refreshButton = button("↻  REFRESH LIST", false) { showRandomSongs() }
+        shuffleButton.isEnabled = false
+        controls.addView(shuffleButton, LinearLayout.LayoutParams(210, 46).apply { rightMargin = 12 })
+        controls.addView(refreshButton, LinearLayout.LayoutParams(180, 46))
         content.addView(controls, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 8 })
-        content.addView(label("${songs.size} songs", 13, MUTED), LinearLayout.LayoutParams(-1, 28))
-        if (songs.isEmpty()) {
-            content.addView(label("No scanned tracks yet. Connect to your SMB share and scan your music library first.", 14, MUTED))
-        } else {
-            songs.forEach { addTrackRow(it, songs) }
-        }
+        val countLabel = label("Finding random songs…", 13, MUTED)
+        content.addView(countLabel, LinearLayout.LayoutParams(-1, 30))
+        val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        content.addView(results, LinearLayout.LayoutParams(-1, -2))
         addNowPlaying()
         focusContent()
+
+        // Fetch the random selection off the UI thread so the full-song list opens
+        // immediately even on slower Android TV boxes and large SMB libraries.
+        thread(name = "redwave-random-list") {
+            val songs = try {
+                libraryStore.loadRandomTracks(300).distinctBy {
+                    listOf(it.title.trim().lowercase(), it.artist.trim().lowercase(), it.album.trim().lowercase(), it.folder.trimEnd('/').lowercase())
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("RedWaveRandom", "Could not load random songs", e)
+                emptyList()
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed || currentScreen != "RANDOM_SONGS") return@runOnUiThread
+                countLabel.text = "${songs.size} songs"
+                shuffleButton.isEnabled = songs.isNotEmpty()
+                shuffleButton.setOnClickListener {
+                    if (songs.isNotEmpty()) playTrack(songs.random(), songs.shuffled())
+                }
+                if (songs.isEmpty()) {
+                    results.addView(label("No scanned tracks yet. Connect to your SMB share and scan your music library first.", 14, MUTED))
+                } else {
+                    songs.forEach { addTrackRow(it, songs, results) }
+                }
+                focusContent()
+            }
+        }
     }
 
     private fun showRandomDropdown(items: List<Track>, anchor: View) {
