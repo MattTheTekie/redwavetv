@@ -34,6 +34,10 @@ import com.google.android.exoplayer2.MediaItem
 import com.google.android.exoplayer2.source.ProgressiveMediaSource
 import com.google.android.exoplayer2.extractor.DefaultExtractorsFactory
 import com.google.android.exoplayer2.upstream.DataSource
+import com.google.android.exoplayer2.upstream.cache.StandaloneDatabaseProvider
+import com.google.android.exoplayer2.upstream.cache.SimpleCache
+import com.google.android.exoplayer2.upstream.cache.LeastRecentlyUsedCacheEvictor
+import com.google.android.exoplayer2.upstream.cache.CacheDataSource
 import com.google.android.exoplayer2.upstream.DataSpec
 import com.google.android.exoplayer2.upstream.TransferListener
 import jcifs.CIFSContext
@@ -66,6 +70,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var contentScroll: ScrollView
     private var miniPlayPause: TextView? = null
     private var playerPlayPause: TextView? = null
+    @Volatile private var mediaCache: SimpleCache? = null
     private lateinit var bottomPlayer: LinearLayout
     private lateinit var statusText: TextView
     private lateinit var player: ExoPlayer
@@ -1774,14 +1779,20 @@ class MainActivity : AppCompatActivity() {
             lyricsLoadingPath = ""
             playerLyricLine = null
             lyricsStatus = "Choose a track to look for an .lrc file"
-            val factory = DataSource.Factory { SmbStreamDataSource(ctx) }
+            val smbFactory = DataSource.Factory { SmbStreamDataSource(ctx) }
+            // Bounded persistent disk cache: recently read audio ranges are served locally
+            // when playback revisits them, reducing repeated SMB reads during brief stalls.
+            val cachedFactory = CacheDataSource.Factory()
+                .setCache(getOrCreateMediaCache())
+                .setUpstreamDataSourceFactory(smbFactory)
+                .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
             val mediaItem = MediaItem.Builder()
                 .setUri(track.path)
                 .setMimeType(audioMimeType(track.path))
                 .build()
             // Enable constant-bitrate seeking for MP3 files that do not contain a Xing/VBRI seek table.
             val extractors = DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true)
-            val source = ProgressiveMediaSource.Factory(factory, extractors).createMediaSource(mediaItem)
+            val source = ProgressiveMediaSource.Factory(cachedFactory, extractors).createMediaSource(mediaItem)
             player.setMediaSource(source)
             player.prepare()
             player.play()
@@ -1978,7 +1989,27 @@ class MainActivity : AppCompatActivity() {
         try { libraryStore.writableDatabase.execSQL("PRAGMA wal_checkpoint(FULL)") } catch (_: Exception) { }
         try { libraryStore.close() } catch (_: Exception) { }
         player.release()
+        try { mediaCache?.release() } catch (_: Exception) { }
+        mediaCache = null
         super.onDestroy()
+    }
+
+    private fun getOrCreateMediaCache(): SimpleCache {
+        mediaCache?.let { return it }
+        synchronized(this) {
+            mediaCache?.let { return it }
+            val directory = java.io.File(cacheDir, "redwave_stream_cache")
+            if (!directory.exists() && !directory.mkdirs()) {
+                throw IllegalStateException("Could not create playback cache directory")
+            }
+            val created = SimpleCache(
+                directory,
+                LeastRecentlyUsedCacheEvictor(512L * 1024L * 1024L),
+                StandaloneDatabaseProvider(this)
+            )
+            mediaCache = created
+            return created
+        }
     }
 
     private class SmbStreamDataSource(private val context: CIFSContext) : DataSource {
