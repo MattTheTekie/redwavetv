@@ -298,11 +298,11 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(24, 18, 24, 18)
-            background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(0xFF54171D.toInt(), 0xFF302027.toInt(), SURFACE)).apply { cornerRadius = 18f }
+            background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(0xFF54171D.toInt(), 0xFF24191B.toInt(), SURFACE)).apply { cornerRadius = 18f }
         }
         val heroCopy = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         heroCopy.addView(label("ALL YOUR MUSIC.\nONE BEAUTIFUL LIBRARY.", 25, WHITE, true), LinearLayout.LayoutParams(-1, 78))
-        heroCopy.addView(label(safeTrackCount().toString() + " songs indexed  ·  browse folders anytime", 13, 0xFFE2D9E0.toInt()))
+        heroCopy.addView(label(safeTrackCount().toString() + " songs indexed  ·  browse folders anytime", 13, 0xFFD8D8DE.toInt()))
         val openLibrary = button(if (smbContext == null) "OPEN SETTINGS" else "OPEN LIBRARY", false) {
             if (smbContext != null) showQueue() else showSettings()
         }.apply {
@@ -382,7 +382,7 @@ class MainActivity : AppCompatActivity() {
                 val art = ImageView(this).apply {
                     scaleType = ImageView.ScaleType.CENTER_CROP
                     background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF65151D.toInt(), 0xFF242B48.toInt())).apply { cornerRadius = 9f }
-                    setImageDrawable(GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF713047.toInt(), 0xFF242B48.toInt())).apply { cornerRadius = 9f })
+                    setImageDrawable(GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF54171D.toInt(), 0xFF242B48.toInt())).apply { cornerRadius = 9f })
                 }
                 card.addView(art, LinearLayout.LayoutParams(-1, 116))
                 card.addView(label(group.first.trimEnd('/').substringAfterLast('/').ifBlank { "Music" }, 13, WHITE, true), LinearLayout.LayoutParams(-1, 28))
