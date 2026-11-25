@@ -1,6 +1,9 @@
 package com.example.redwavetv
 
 import android.graphics.Typeface
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.ImageSpan
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.animation.ObjectAnimator
@@ -216,14 +219,18 @@ class MainActivity : AppCompatActivity() {
             Triple("⌂  HOME", "HOME") { showHome() },
             Triple("♫  LIBRARY", "QUEUE") { showQueue() },
             Triple("⌕  SEARCH", "SEARCH") { showSearch() },
-            Triple("  FOLDERS", "FOLDERS") { showFolders() },
+            Triple("FOLDERS", "FOLDERS") { showFolders() },
             Triple("⚙  SETTINGS", "SETTINGS") { showSettings() }
         )
         tabs.forEach { tab ->
             val nav = button(tab.first, currentScreen == tab.second) { tab.third() }
             if (tab.second == "FOLDERS") {
-                nav.setCompoundDrawablesWithIntrinsicBounds(FolderGlyph(), null, null, null)
-                nav.compoundDrawablePadding = 5
+                // Keep icon and label in one centered text run instead of anchoring
+                // the drawable to the far left edge of the navigation button.
+                nav.text = SpannableString(" FOLDERS").apply {
+                    setSpan(ImageSpan(FolderGlyph()), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                nav.gravity = Gravity.CENTER
             }
             navButtons[tab.second] = nav
             nav.setOnFocusChangeListener { view, focused ->
