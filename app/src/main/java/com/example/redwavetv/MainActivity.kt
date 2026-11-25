@@ -635,14 +635,19 @@ class MainActivity : AppCompatActivity() {
                 val iterator = directory.children()
                 val hiddenFolderPaths = try { libraryStore.hiddenFolders() } catch (_: Exception) { emptyList() }
                 val allVisible = ArrayList<SmbResource>()
+                val currentPathHidden = hiddenFolderPaths.any {
+                    (path.trimEnd('/') + "/").startsWith(it.trimEnd('/') + "/", ignoreCase = true)
+                }
                 try {
-                    while (iterator.hasNext()) {
-                        val file = iterator.next()
-                        val name = file.getName().trimEnd('/')
-                        val isAudio = !file.isDirectory && name.substringAfterLast('.', "").lowercase() in AUDIO_EXTENSIONS
-                        val canonical = if (file.isDirectory) file.getLocator().getCanonicalURL().trimEnd('/') + "/" else ""
-                        val isHiddenFolder = file.isDirectory && hiddenFolderPaths.any { canonical.startsWith(it, ignoreCase = true) }
-                        if (!isHiddenFolder && (file.isDirectory || isAudio)) allVisible.add(file)
+                    if (!currentPathHidden) {
+                        while (iterator.hasNext()) {
+                            val file = iterator.next()
+                            val name = file.getName().trimEnd('/')
+                            val isAudio = !file.isDirectory && name.substringAfterLast('.', "").lowercase() in AUDIO_EXTENSIONS
+                            val canonical = file.getLocator().getCanonicalURL().trimEnd('/') + "/"
+                            val isHidden = hiddenFolderPaths.any { canonical.startsWith(it.trimEnd('/') + "/", ignoreCase = true) }
+                            if (!isHidden && (file.isDirectory || isAudio)) allVisible.add(file)
+                        }
                     }
                 } finally {
                     try { iterator.close() } catch (_: Exception) { }
@@ -659,7 +664,9 @@ class MainActivity : AppCompatActivity() {
                             showRemoteFolder(parent ?: currentShare)
                         }, LinearLayout.LayoutParams(-1, 48).apply { bottomMargin = 6 })
                     }
-                    if (page.isEmpty() && offset == 0) content.addView(label("This folder is empty.", 15, MUTED))
+                    if (currentPathHidden) {
+                        content.addView(label("This folder is hidden from your music library. Use Settings → HIDDEN FOLDERS to unhide it.", 14, MUTED))
+                    } else if (page.isEmpty() && offset == 0) content.addView(label("This folder is empty.", 15, MUTED))
                     val sortedPage = page
                     val folderQueue = sortedAll.filter { !it.isDirectory }.map { file ->
                         val name = file.getName().trimEnd('/')
@@ -671,17 +678,20 @@ class MainActivity : AppCompatActivity() {
                     sortedPage.forEach { file ->
                         val name = file.getName().trimEnd('/')
                         if (file.isDirectory) {
+                            val folderRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
                             val folderButton = button("▤   $name   ›", false) { showRemoteFolder(file.getLocator().getCanonicalURL()) }
-                            folderButton.setOnLongClickListener {
+                            fun hideThisFolder() {
                                 try {
                                     libraryStore.hideFolder(file.getLocator().getCanonicalURL())
                                     invalidateHomeLibraryCache()
                                     toast("Hidden from your music library: $name")
                                     showRemoteFolder(path)
                                 } catch (e: Exception) { toast("Could not hide folder: " + (e.message ?: "database error")) }
-                                true
                             }
-                            content.addView(folderButton, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 6 })
+                            folderButton.setOnLongClickListener { hideThisFolder(); true }
+                            folderRow.addView(folderButton, LinearLayout.LayoutParams(0, 54, 1f))
+                            folderRow.addView(button("HIDE", false) { hideThisFolder() }, LinearLayout.LayoutParams(88, 54).apply { leftMargin = 6 })
+                            content.addView(folderRow, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 6 })
                         } else {
                             content.addView(button("♫   " + name.substringBeforeLast('.'), false) {
                                 playTrack(Track(name.substringBeforeLast('.'), file.getLocator().getCanonicalURL(), file.getLocator().getParent() ?: path), folderQueue, true)
