@@ -79,6 +79,14 @@ class MainActivity : AppCompatActivity() {
     private var shuffleEnabled = false
     private var repeatMode = 0
     private var playingTrack: Track? = null
+    private var playbackRestoreAttempted = false
+    private val playbackSaveHandler = Handler(Looper.getMainLooper())
+    private val playbackSaveTask = object : Runnable {
+        override fun run() {
+            savePlaybackState()
+            playbackSaveHandler.postDelayed(this, 5000L)
+        }
+    }
     private var isScanning = false
     private var scanStatus = "Not connected"
     private var currentScreen = "HOME"
@@ -130,6 +138,7 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread { toast(detail) }
             }
         })
+        playbackSaveHandler.postDelayed(playbackSaveTask, 5000L)
         try {
             libraryStore = LibraryStore(this)
             buildShell()
@@ -146,6 +155,16 @@ class MainActivity : AppCompatActivity() {
             android.util.Log.e("RedWaveStartup", "Initial UI setup failed", e)
             if (::content.isInitialized) showStartupRecovery(e)
         }
+    }
+
+    override fun onPause() {
+        savePlaybackState()
+        super.onPause()
+    }
+
+    override fun onStop() {
+        savePlaybackState()
+        super.onStop()
     }
 
     private fun showStartupRecovery(error: Exception) {
@@ -723,7 +742,7 @@ class MainActivity : AppCompatActivity() {
         content.addView(box, LinearLayout.LayoutParams(-1, 120).apply { topMargin = 12 })
     }
 
-    private fun addTrackRow(track: Track, queue: List<Track>? = null, parent: LinearLayout = content, favoriteOverride: Boolean? = null) {
+    private fun addTrackRow(track: Track, queue: List<Track>? = null, parent: LinearLayout = content, favoriteOverride: Boolean? = null): View {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -773,6 +792,7 @@ class MainActivity : AppCompatActivity() {
         }
         row.addView(favoriteButton, LinearLayout.LayoutParams(42, 40).apply { leftMargin = 6 })
         parent.addView(row, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 6 })
+        return play
     }
 
     private fun showSearch() {
@@ -944,12 +964,55 @@ class MainActivity : AppCompatActivity() {
         currentScreen = "RECENTS"
         updateNavigation()
         content.removeAllViews()
+        content.setPadding(24, 10, 24, 18)
         content.addView(label("Recently Played", 29, WHITE, true), LinearLayout.LayoutParams(-1, 58))
-        val recent = try { libraryStore.loadRecent(100) } catch (_: Exception) { emptyList() }
-        content.addView(label("Saved play history • ${recent.size} shown", 13, MUTED), LinearLayout.LayoutParams(-1, 30))
-        if (recent.isEmpty()) content.addView(label("Your played songs will appear here. History is saved on this device.", 14, MUTED)) else recent.forEach { addTrackRow(it) }
+        val status = label("Loading play history…", 13, MUTED)
+        content.addView(status, LinearLayout.LayoutParams(-1, 30))
+        val songList = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            isFocusable = false
+            descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+        }
+        content.addView(songList, LinearLayout.LayoutParams(-1, -2))
         addNowPlaying()
-        focusContent()
+        thread(name = "redwave-recent-history") {
+            val recent = try { libraryStore.loadRecent(300) } catch (e: Exception) {
+                android.util.Log.e("RedWaveRecent", "Could not load play history", e)
+                emptyList()
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed || currentScreen != "RECENTS") return@runOnUiThread
+                status.text = "Saved play history • ${recent.size} songs"
+                if (recent.isEmpty()) {
+                    songList.addView(label("Your played songs will appear here. History is saved on this device.", 14, MUTED))
+                } else {
+                    val songFocus = recent.map { addTrackRow(it, recent, songList) }
+                    // Force vertical remote navigation through the song controls. This
+                    // prevents focus falling back to the ScrollView/page between rows.
+                    songFocus.forEachIndexed { index, view ->
+                        view.nextFocusUpId = songFocus.getOrNull(index - 1)?.id ?: view.id
+                        view.nextFocusDownId = songFocus.getOrNull(index + 1)?.id ?: view.id
+                    }
+                    songList.post {
+                        songFocus.firstOrNull()?.requestFocus()
+                    }
+                }
+                focusContent()
+                songFocusScrollToFocused()
+            }
+        }
+    }
+
+    private fun songFocusScrollToFocused() {
+        content.post {
+            val focused = currentFocus ?: return@post
+            if (isViewInside(contentScroll, focused)) {
+                val rect = android.graphics.Rect()
+                focused.getDrawingRect(rect)
+                contentScroll.offsetDescendantRectToMyCoords(focused, rect)
+                contentScroll.smoothScrollTo(0, (rect.top - 24).coerceAtLeast(0))
+            }
+        }
     }
 
     private fun showFavourites() {
@@ -994,6 +1057,46 @@ class MainActivity : AppCompatActivity() {
         bar.addView(playPause, LinearLayout.LayoutParams(58, 46))
         bar.addView(next, LinearLayout.LayoutParams(58, 46))
         bottomPlayer.addView(bar, LinearLayout.LayoutParams(-1, 54))
+    }
+
+    private fun savePlaybackState() {
+        if (!::player.isInitialized) return
+        val track = playingTrack ?: return
+        try {
+            getSharedPreferences("redwave_playback", MODE_PRIVATE).edit()
+                .putString("path", track.path)
+                .putLong("position", player.currentPosition.coerceAtLeast(0L))
+                .putBoolean("was_playing", player.playWhenReady)
+                .apply()
+        } catch (e: Exception) {
+            android.util.Log.w("RedWavePlayer", "Could not save playback position", e)
+        }
+    }
+
+    private fun restorePlaybackIfAvailable() {
+        if (playbackRestoreAttempted || smbContext == null) return
+        playbackRestoreAttempted = true
+        thread(name = "redwave-playback-restore") {
+            try {
+                val prefs = getSharedPreferences("redwave_playback", MODE_PRIVATE)
+                val path = prefs.getString("path", null) ?: return@thread
+                val position = prefs.getLong("position", 0L).coerceAtLeast(0L)
+                val wasPlaying = prefs.getBoolean("was_playing", false)
+                val track = libraryStore.loadTrack(path) ?: libraryStore.loadRecent(1).firstOrNull()
+                    ?: return@thread
+                runOnUiThread {
+                    if (isFinishing || isDestroyed || smbContext == null) return@runOnUiThread
+                    playTrack(track)
+                    player.seekTo(position)
+                    if (!wasPlaying) player.pause()
+                    updatePlaybackButtons()
+                    addNowPlaying()
+                    android.util.Log.i("RedWavePlayer", "Restored ${track.title} at ${position}ms (wasPlaying=$wasPlaying)")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("RedWavePlayer", "Playback restore failed", e)
+            }
+        }
     }
 
     private fun togglePlayback() {
@@ -1422,6 +1525,7 @@ class MainActivity : AppCompatActivity() {
                 if (!directory.exists() || !directory.isDirectory) throw IllegalStateException("Share or folder not found: " + base)
                 // Avoid loading a potentially huge share listing just to connect.
                 smbContext = ctx
+                runOnUiThread { if (!isFinishing && !isDestroyed) restorePlaybackIfAvailable() }
                 if (startScan) performScan(base, ctx) else {
                     isScanning = false
                     scanStatus = "Connected • ready to browse"
@@ -1617,6 +1721,7 @@ class MainActivity : AppCompatActivity() {
             player.setMediaSource(source)
             player.prepare()
             player.play()
+            savePlaybackState()
             refreshScreen()
             // Extract metadata and embedded cover only for the selected track.
             thread(name = "redwave-track-metadata") {
