@@ -5,7 +5,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-library.db", null, 6) {
+class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-library.db", null, 7) {
     init { setWriteAheadLoggingEnabled(true) }
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE tracks (path TEXT PRIMARY KEY, title TEXT NOT NULL, folder TEXT NOT NULL, artist TEXT NOT NULL, album TEXT NOT NULL, artwork TEXT NOT NULL)")
@@ -19,6 +19,7 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         db.execSQL("CREATE TABLE scan_state (id INTEGER PRIMARY KEY CHECK(id=1), base TEXT NOT NULL, status TEXT NOT NULL, visited INTEGER NOT NULL DEFAULT 0, discovered INTEGER NOT NULL DEFAULT 0)")
         db.execSQL("CREATE TABLE favorites (path TEXT PRIMARY KEY)")
         db.execSQL("CREATE TABLE play_history (path TEXT PRIMARY KEY, played_at INTEGER NOT NULL)")
+        db.execSQL("CREATE TABLE hidden_folders (path TEXT PRIMARY KEY)")
     }
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) { if (oldVersion < 2) db.execSQL("CREATE TABLE IF NOT EXISTS scan_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, depth INTEGER NOT NULL)"); if (oldVersion < 3) db.execSQL("CREATE TABLE IF NOT EXISTS scan_state (id INTEGER PRIMARY KEY CHECK(id=1), base TEXT NOT NULL, status TEXT NOT NULL, visited INTEGER NOT NULL DEFAULT 0, discovered INTEGER NOT NULL DEFAULT 0)")
         if (oldVersion < 4) {
@@ -34,6 +35,7 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
             db.execSQL("CREATE INDEX IF NOT EXISTS tracks_album_nocase_idx ON tracks(album COLLATE NOCASE)")
             db.execSQL("CREATE INDEX IF NOT EXISTS tracks_folder_nocase_idx ON tracks(folder COLLATE NOCASE)")
         }
+        if (oldVersion < 7) db.execSQL("CREATE TABLE IF NOT EXISTS hidden_folders (path TEXT PRIMARY KEY)")
     }
     override fun onConfigure(db: SQLiteDatabase) {
         super.onConfigure(db)
@@ -42,6 +44,22 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         db.rawQuery("PRAGMA temp_store=FILE", null).use { }
         db.rawQuery("PRAGMA mmap_size=0", null).use { }
     }
+    @Synchronized fun hideFolder(path: String) {
+        val normalized = path.trimEnd('/') + "/"
+        val values = ContentValues().apply { put("path", normalized) }
+        writableDatabase.insertWithOnConflict("hidden_folders", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+    @Synchronized fun unhideFolder(path: String) {
+        writableDatabase.delete("hidden_folders", "path=?", arrayOf(path.trimEnd('/') + "/"))
+    }
+    fun hiddenFolders(): List<String> {
+        val result = ArrayList<String>()
+        readableDatabase.rawQuery("SELECT path FROM hidden_folders ORDER BY path COLLATE NOCASE", null).use { c -> while (c.moveToNext()) result.add(c.getString(0)) }
+        return result
+    }
+    private fun visibleFolderSql(column: String = "folder"): String =
+        "NOT EXISTS (SELECT 1 FROM hidden_folders hf WHERE substr($column,1,length(hf.path))=hf.path)"
+
     @Synchronized fun startOrResumeScan(base: String): Boolean {
         val db = writableDatabase
         val previous = db.rawQuery("SELECT base,status FROM scan_state WHERE id=1", null).use { c -> if (c.moveToFirst()) Pair(c.getString(0), c.getString(1)) else null }
@@ -95,14 +113,14 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
     }
     fun loadAlbumGroups(limit: Int = 60): List<Pair<String, Long>> {
         val result = ArrayList<Pair<String, Long>>(limit)
-        readableDatabase.rawQuery("SELECT CASE WHEN album != '' THEN album ELSE folder END AS grouping, COUNT(*) FROM tracks GROUP BY grouping ORDER BY grouping COLLATE NOCASE LIMIT ?", arrayOf(limit.toString())).use { c ->
+        readableDatabase.rawQuery("SELECT CASE WHEN album != '' THEN album ELSE folder END AS grouping, COUNT(*) FROM tracks WHERE ${visibleFolderSql()} GROUP BY grouping ORDER BY grouping COLLATE NOCASE LIMIT ?", arrayOf(limit.toString())).use { c ->
             while (c.moveToNext()) result.add(Pair(c.getString(0), c.getLong(1)))
         }
         return result
     }
     fun tracksInGroup(group: String, limit: Int = 100, offset: Int = 0): List<Track> {
         val result = ArrayList<Track>(limit)
-        readableDatabase.rawQuery("SELECT title,path,folder,artist,album,artwork FROM tracks WHERE (CASE WHEN album != '' THEN album ELSE folder END)=? ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?", arrayOf(group,limit.toString(),offset.toString())).use { c ->
+        readableDatabase.rawQuery("SELECT title,path,folder,artist,album,artwork FROM tracks WHERE ${visibleFolderSql()} AND (CASE WHEN album != '' THEN album ELSE folder END)=? ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?", arrayOf(group,limit.toString(),offset.toString())).use { c ->
             while (c.moveToNext()) result.add(Track(c.getString(0),c.getString(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5)))
         }
         return result
@@ -141,13 +159,13 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         // Contains matching finds terms inside titles, artists, albums and folders.
         // It runs on the search executor and is paged so the UI never loads the whole library.
         return queryTrackRows(
-            "SELECT title,path,folder,artist,album,artwork FROM tracks WHERE path IN (SELECT MIN(path) FROM tracks WHERE title LIKE ? OR artist LIKE ? OR album LIKE ? OR folder LIKE ? GROUP BY lower(trim(title)), lower(trim(artist)), lower(trim(album)), lower(rtrim(folder, '/'))) ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?",
+            "SELECT title,path,folder,artist,album,artwork FROM tracks WHERE path IN (SELECT MIN(path) FROM tracks WHERE ${visibleFolderSql()} AND (title LIKE ? OR artist LIKE ? OR album LIKE ? OR folder LIKE ?) GROUP BY lower(trim(title)), lower(trim(artist)), lower(trim(album)), lower(rtrim(folder, '/'))) ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?",
             arrayOf(q,q,q,q,limit.toString(),offset.toString()), limit
         )
     }
-    fun loadRecent(limit: Int = 100): List<Track> = queryTrackRows("SELECT t.title,t.path,t.folder,t.artist,t.album,t.artwork FROM tracks t INNER JOIN play_history h ON h.path=t.path ORDER BY h.played_at DESC LIMIT ?", arrayOf(limit.toString()), limit)
+    fun loadRecent(limit: Int = 100): List<Track> = queryTrackRows("SELECT t.title,t.path,t.folder,t.artist,t.album,t.artwork FROM tracks t INNER JOIN play_history h ON h.path=t.path WHERE ${visibleFolderSql("t.folder")} ORDER BY h.played_at DESC LIMIT ?", arrayOf(limit.toString()), limit)
     fun loadTrack(path: String): Track? = queryTrackRows("SELECT title,path,folder,artist,album,artwork FROM tracks WHERE path=? LIMIT 1", arrayOf(path), 1).firstOrNull()
-    fun loadFavorites(limit: Int = 100): List<Track> = queryTrackRows("SELECT t.title,t.path,t.folder,t.artist,t.album,t.artwork FROM tracks t INNER JOIN favorites f ON f.path=t.path ORDER BY t.title COLLATE NOCASE LIMIT ?", arrayOf(limit.toString()), limit)
+    fun loadFavorites(limit: Int = 100): List<Track> = queryTrackRows("SELECT t.title,t.path,t.folder,t.artist,t.album,t.artwork FROM tracks t INNER JOIN favorites f ON f.path=t.path WHERE ${visibleFolderSql("t.folder")} ORDER BY t.title COLLATE NOCASE LIMIT ?", arrayOf(limit.toString()), limit)
     fun loadRandomTracks(limit: Int = 300, excludePath: String = ""): List<Track> {
         if (limit <= 0) return emptyList()
         val maxRowId = readableDatabase.rawQuery("SELECT COALESCE(MAX(rowid),0) FROM tracks", null).use { c -> c.moveToFirst(); c.getLong(0) }
@@ -155,7 +173,7 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         // Jump to a random rowid instead of ORDER BY RANDOM(), which sorts the entire
         // 500k-track library every time Home opens or playback needs another batch.
         val start = kotlin.random.Random.nextLong(1L, maxRowId + 1L)
-        val fields = "SELECT title,path,folder,artist,album,artwork FROM tracks WHERE "
+        val fields = "SELECT title,path,folder,artist,album,artwork FROM tracks WHERE ${visibleFolderSql()} AND "
         val exclude = if (excludePath.isBlank()) "" else "path<>? AND "
         val args1 = if (excludePath.isBlank()) arrayOf(start.toString(), limit.toString()) else arrayOf(excludePath, start.toString(), limit.toString())
         val first = queryTrackRows(fields + exclude + "rowid>=? ORDER BY rowid LIMIT ?", args1, limit)
@@ -170,7 +188,7 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         }.take(limit)
     }
     fun loadTracksInFolder(folder: String, limit: Int = 1000): List<Track> =
-        queryTrackRows("SELECT title,path,folder,artist,album,artwork FROM tracks WHERE folder=? ORDER BY title COLLATE NOCASE LIMIT ?", arrayOf(folder, limit.toString()), limit)
+        queryTrackRows("SELECT title,path,folder,artist,album,artwork FROM tracks WHERE ${visibleFolderSql()} AND folder=? ORDER BY title COLLATE NOCASE LIMIT ?", arrayOf(folder, limit.toString()), limit)
     private fun queryTrackRows(sql: String, args: Array<String>, limit: Int): List<Track> {
         val result = ArrayList<Track>(limit.coerceAtMost(500))
         readableDatabase.rawQuery(sql, args).use { c -> while (c.moveToNext()) result.add(Track(c.getString(0),c.getString(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5))) }
@@ -188,7 +206,7 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         // This value is used by the Home screen and status bar. A GROUP BY over
         // every metadata column makes startup crawl on 500k-song libraries.
         // Count indexed rows here; deduplication remains in search and playback views.
-        readableDatabase.rawQuery("SELECT COUNT(*) FROM tracks", null).use { it.moveToFirst(); return it.getLong(0) }
+        readableDatabase.rawQuery("SELECT COUNT(*) FROM tracks WHERE ${visibleFolderSql()}", null).use { it.moveToFirst(); return it.getLong(0) }
     }
     fun loadTracks(limit: Int = 100, offset: Int = 0): List<Track> {
         val safeLimit = limit.coerceIn(1, 5000)
@@ -204,7 +222,7 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         // De-duplicate the fetched page in memory; scanner path identity prevents
         // repeated insertion of the same SMB object.
         val rows = queryTrackRows(
-            "SELECT title,path,folder,artist,album,artwork FROM tracks ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?",
+            "SELECT title,path,folder,artist,album,artwork FROM tracks WHERE ${visibleFolderSql()} ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?",
             arrayOf((safeLimit * 3).coerceAtMost(15000).toString(), safeOffset.toString()), (safeLimit * 3).coerceAtMost(15000)
         )
         return rows.distinctBy {
