@@ -210,11 +210,15 @@ class MainActivity : AppCompatActivity() {
             Triple("⌂  HOME", "HOME") { showHome() },
             Triple("♫  LIBRARY", "QUEUE") { showQueue() },
             Triple("⌕  SEARCH", "SEARCH") { showSearch() },
-            Triple("📁  FOLDERS", "FOLDERS") { showFolders() },
+            Triple("  FOLDERS", "FOLDERS") { showFolders() },
             Triple("⚙  SETTINGS", "SETTINGS") { showSettings() }
         )
         tabs.forEach { tab ->
             val nav = button(tab.first, currentScreen == tab.second) { tab.third() }
+            if (tab.second == "FOLDERS") {
+                nav.setCompoundDrawablesWithIntrinsicBounds(FolderGlyph(), null, null, null)
+                nav.compoundDrawablePadding = 5
+            }
             navButtons[tab.second] = nav
             nav.setOnFocusChangeListener { view, focused ->
                 val selected = if (tab.second == "QUEUE") currentScreen == "QUEUE" || currentScreen == "ALBUMS" else currentScreen == tab.second
@@ -901,7 +905,16 @@ class MainActivity : AppCompatActivity() {
             if (songs.isEmpty()) {
                 results.addView(label("No scanned tracks yet. Connect to your SMB share and scan your music library first.", 14, MUTED))
             } else {
-                songs.forEach { addTrackRow(it, songs, results) }
+                val songFocus = songs.map { addTrackRow(it, songs, results) }
+                // Start DPAD navigation in the actual song list, not on the
+                // ScrollView background. Keep the transport controls connected.
+                val firstSong = songFocus.firstOrNull()
+                if (firstSong != null) {
+                    shuffleButton.nextFocusDownId = firstSong.id
+                    refreshButton.nextFocusDownId = firstSong.id
+                    firstSong.nextFocusUpId = refreshButton.id
+                    results.post { firstSong.requestFocus() }
+                }
             }
             focusContent()
         }
