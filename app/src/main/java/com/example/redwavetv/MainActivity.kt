@@ -195,6 +195,7 @@ class MainActivity : AppCompatActivity() {
         currentScreen = "HOME"
         content.removeAllViews()
         updateStatus()
+        updateNavigation()
         content.addView(label("Listen Now", 32, WHITE, true), LinearLayout.LayoutParams(-1, 48))
         content.addView(label("Your music, picked by you.", 14, MUTED), LinearLayout.LayoutParams(-1, 30))
         val hero = LinearLayout(this).apply {
@@ -213,21 +214,16 @@ class MainActivity : AppCompatActivity() {
         hero.addView(label("♫", 86, 0xFFFFA4B5.toInt(), true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(150, 130))
         content.addView(hero, LinearLayout.LayoutParams(-1, 172).apply { topMargin = 10; bottomMargin = 18 })
         if (isScanning) content.addView(label("Scanning network library…  " + tracks.size + " found", 13, GREEN, true), LinearLayout.LayoutParams(-1, 36))
-        val folders = safeLoadAlbumGroups(9).mapNotNull { group -> try { group.first to libraryStore.tracksInGroup(group.first, 1) } catch (_: Exception) { null } }
-        if (folders.isNotEmpty()) {
-            sectionTitle("ALBUMS", "SEE ALL") { showAlbums() }
-            addArtworkGrid(folders)
-        } else if (!isScanning) {
-            val empty = panel()
-            empty.addView(label("Your library starts here", 20, WHITE, true))
-            empty.addView(label("Connect an SMB share. RedWave scans nested folders and looks for cover artwork.", 14, MUTED))
-            content.addView(empty, LinearLayout.LayoutParams(-1, 112).apply { bottomMargin = 16 })
-        }
-        if (tracks.isNotEmpty()) {
-            sectionTitle("RECENTLY ADDED", "SEE SONGS") { showQueue() }
-            tracks.take(6).forEach { addTrackRow(it) }
-        }
+        val recent = try { libraryStore.loadRecent(8) } catch (_: Exception) { emptyList() }
+        val favourites = try { libraryStore.loadFavorites(8) } catch (_: Exception) { emptyList() }
+        sectionTitle("RECENTLY PLAYED", "SEE ALL") { showRecents() }
+        if (recent.isEmpty()) content.addView(label("Play a song and it will appear here.", 13, MUTED), LinearLayout.LayoutParams(-1, 34)) else recent.take(5).forEach { addTrackRow(it, recent) }
+        sectionTitle("FAVOURITES", "SEE ALL") { showFavourites() }
+        if (favourites.isEmpty()) content.addView(label("Save songs with the ☆ button to build your favourites.", 13, MUTED), LinearLayout.LayoutParams(-1, 34)) else favourites.take(5).forEach { addTrackRow(it, favourites) }
+        val latest = safeLoadTracks(8)
+        if (latest.isNotEmpty()) { sectionTitle("YOUR LIBRARY", "SEE ALL SONGS") { showQueue() }; latest.take(5).forEach { addTrackRow(it, latest) } }
         addNowPlaying()
+        focusContent()
     }
 
     private fun sectionTitle(title: String, action: String, onClick: () -> Unit) {
@@ -470,6 +466,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showSearch() {
         currentScreen = "SEARCH"
+        updateNavigation()
         content.removeAllViews()
         content.addView(label("Search your music", 29, WHITE, true), LinearLayout.LayoutParams(-1, 58))
         val query = EditText(this).apply { hint = "Search title, artist, album or folder"; setSingleLine(true); textSize = 16f; setTextColor(WHITE); setHintTextColor(MUTED); setPadding(14, 8, 14, 8); background = rounded(SURFACE_HI, 10) }
@@ -482,7 +479,7 @@ class MainActivity : AppCompatActivity() {
             val matches = try { libraryStore.searchTracks(value, 100) } catch (_: Exception) { emptyList() }
             if (matches.isEmpty()) results.addView(label("No matching tracks.", 14, MUTED)) else matches.forEach { track ->
                 val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-                row.addView(button("▶  ${track.title}  ·  ${track.artist}", false) { playTrack(track) }, LinearLayout.LayoutParams(0, 54, 1f))
+                row.addView(button("▶  ${track.title}  ·  ${track.artist}", false) { playTrack(track, matches) }, LinearLayout.LayoutParams(0, 54, 1f))
                 row.addView(button(if (try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }) "★" else "☆", false) {
                     try {
                         val saved = libraryStore.isFavorite(track.path)
@@ -504,6 +501,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showRecents() {
         currentScreen = "RECENTS"
+        updateNavigation()
         content.removeAllViews()
         content.addView(label("Recently Played", 29, WHITE, true), LinearLayout.LayoutParams(-1, 58))
         val recent = try { libraryStore.loadRecent(100) } catch (_: Exception) { emptyList() }
@@ -514,6 +512,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showFavourites() {
         currentScreen = "FAVOURITES"
+        updateNavigation()
         content.removeAllViews()
         content.addView(label("Favourites", 29, WHITE, true), LinearLayout.LayoutParams(-1, 58))
         val favourites = try { libraryStore.loadFavorites(100) } catch (_: Exception) { emptyList() }
@@ -537,9 +536,9 @@ class MainActivity : AppCompatActivity() {
             ellipsize = android.text.TextUtils.TruncateAt.END
             nextFocusRightId = View.NO_ID
         }
-        val previous = button("|◀", false) { player.seekToPrevious(); addNowPlaying() }.apply { id = View.generateViewId() }
+        val previous = button("|◀", false) { playPrevious(); addNowPlaying() }.apply { id = View.generateViewId() }
         val playPause = button(if (player.isPlaying) "Ⅱ" else "▶", false) { if (player.isPlaying) player.pause() else player.play(); addNowPlaying() }.apply { id = View.generateViewId() }
-        val next = button("▶|", false) { player.seekToNext(); addNowPlaying() }.apply { id = View.generateViewId() }
+        val next = button("▶|", false) { playNext(); addNowPlaying() }.apply { id = View.generateViewId() }
         openPlayer.nextFocusRightId = previous.id
         previous.nextFocusLeftId = openPlayer.id
         previous.nextFocusRightId = playPause.id
@@ -1051,8 +1050,8 @@ class MainActivity : AppCompatActivity() {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { if (player.isPlaying) player.pause() else player.play(); refreshScreen(); return true }
             KeyEvent.KEYCODE_MEDIA_PLAY -> { player.play(); refreshScreen(); return true }
             KeyEvent.KEYCODE_MEDIA_PAUSE -> { player.pause(); refreshScreen(); return true }
-            KeyEvent.KEYCODE_MEDIA_NEXT -> { player.seekToNext(); return true }
-            KeyEvent.KEYCODE_MEDIA_PREVIOUS -> { player.seekToPrevious(); return true }
+            KeyEvent.KEYCODE_MEDIA_NEXT -> { playNext(); return true }
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS -> { playPrevious(); return true }
         }
         return super.onKeyDown(keyCode, event)
     }
