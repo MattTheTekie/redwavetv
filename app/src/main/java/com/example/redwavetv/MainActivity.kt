@@ -6,11 +6,6 @@ import android.graphics.Paint
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.view.animation.LinearInterpolator
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.animation.ObjectAnimator
-import android.animation.ValueAnimator
-import android.view.animation.LinearInterpolator
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import java.io.File
@@ -49,6 +44,7 @@ import jcifs.smb.SmbFile
 import jcifs.smb.SmbFileInputStream
 import java.util.Properties
 import kotlin.concurrent.thread
+
 
 private const val BG = 0xFF0B0C10.toInt()
 private const val SURFACE = 0xFF171A22.toInt()
