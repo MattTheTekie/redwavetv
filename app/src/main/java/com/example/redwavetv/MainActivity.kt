@@ -1363,8 +1363,8 @@ class MainActivity : AppCompatActivity() {
                 // search candidates and choose the closest title/artist/album match.
                 if (parsed.isEmpty()) {
                     val query = "https://lrclib.net/api/search?track_name=$encodedTitle" +
-                        if (usefulArtist.isNotBlank()) "&artist_name=$encodedArtist" else "" +
-                        if (track.album.isNotBlank()) "&album_name=$encodedAlbum" else ""
+                        (if (usefulArtist.isNotBlank()) "&artist_name=$encodedArtist" else "") +
+                        (if (track.album.isNotBlank()) "&album_name=$encodedAlbum" else "")
                     val connection = java.net.URL(query).openConnection() as java.net.HttpURLConnection
                     connection.connectTimeout = 10000
                     connection.readTimeout = 10000
