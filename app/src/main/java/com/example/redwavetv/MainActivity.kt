@@ -441,10 +441,9 @@ class MainActivity : AppCompatActivity() {
         val favorite = try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }
         row.addView(button(if (favorite) "★" else "☆", favorite) {
             try {
-                // Folder browsing can create a Track that has not been indexed yet.
-                // Persist its row before adding the favourite so the favourites JOIN can display it.
-                libraryStore.upsertBatch(listOf(track))
-                libraryStore.setFavorite(track.path, !libraryStore.isFavorite(track.path))
+                val saved = libraryStore.isFavorite(track.path)
+                libraryStore.saveFavorite(track, !saved)
+                toast(if (saved) "Removed from favourites" else "Added to favourites")
             } catch (e: Exception) { toast("Could not save favourite: " + (e.message ?: "database error")) }
             if (currentScreen == "FAVOURITES") showFavourites() else if (currentScreen == "PLAYER") showPlayer() else refreshScreen()
         }, LinearLayout.LayoutParams(48, 48))
@@ -468,8 +467,11 @@ class MainActivity : AppCompatActivity() {
                 val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
                 row.addView(button("▶  ${track.title}  ·  ${track.artist}", false) { playTrack(track) }, LinearLayout.LayoutParams(0, 54, 1f))
                 row.addView(button(if (try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }) "★" else "☆", false) {
-                    try { libraryStore.upsertBatch(listOf(track)); libraryStore.setFavorite(track.path, !libraryStore.isFavorite(track.path)) }
-                    catch (e: Exception) { toast("Could not save favourite: " + (e.message ?: "database error")) }
+                    try {
+                        val saved = libraryStore.isFavorite(track.path)
+                        libraryStore.saveFavorite(track, !saved)
+                        toast(if (saved) "Removed from favourites" else "Added to favourites")
+                    } catch (e: Exception) { toast("Could not save favourite: " + (e.message ?: "database error")) }
                     runSearch(value)
                 }, LinearLayout.LayoutParams(54, 48))
                 results.addView(row)
@@ -611,7 +613,16 @@ class MainActivity : AppCompatActivity() {
         content.addView(seek, LinearLayout.LayoutParams(-1, 42))
         progressHandler.post(progressUpdater)
         content.addView(button(if (try { libraryStore.isFavorite(track?.path ?: "") } catch (_: Exception) { false }) "★  REMOVE FROM FAVOURITES" else "☆  ADD TO FAVOURITES", false) {
-            if (track != null) { val saved = try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }; try { libraryStore.setFavorite(track.path, !saved) } catch (_: Exception) { }; showPlayer() }
+            if (track != null) {
+                val saved = try { libraryStore.isFavorite(track.path) } catch (_: Exception) { false }
+                try {
+                    libraryStore.saveFavorite(track, !saved)
+                    toast(if (saved) "Removed from favourites" else "Added to favourites")
+                    showPlayer()
+                } catch (e: Exception) {
+                    toast("Favourite save failed: " + (e.message ?: e.javaClass.simpleName))
+                }
+            } else toast("Play a song before adding it to favourites")
         }, LinearLayout.LayoutParams(-1, 46))
         val controls = LinearLayout(this).apply { gravity = Gravity.CENTER; orientation = LinearLayout.HORIZONTAL }
         controls.addView(button("PREVIOUS", false) { playPrevious() }, LinearLayout.LayoutParams(120, 54))
@@ -891,9 +902,10 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             if (batch.isNotEmpty()) try { libraryStore.upsertBatch(batch) } catch (_: Exception) { }
             try { libraryStore.finishScan("INTERRUPTED", visited, discovered) } catch (_: Exception) { }
-            tracks.clear(); tracks.addAll(libraryStore.loadTracks(limit = 100))
+            tracks.clear(); tracks.addAll(safeLoadTracks(limit = 100))
             isScanning = false; scanStatus = "Scan interrupted • $discovered saved"
-            runOnUiThread { updateStatus(); refreshScreen(); toast("Scan stopped after saving $discovered tracks: " + (e.message ?: e.javaClass.simpleName)) }
+            android.util.Log.e("RedWaveScan", "SMB scan failed at $visited entries", e)
+            runOnUiThread { updateStatus(); refreshScreen(); toast("Scan error at $visited entries: " + (e.message ?: e.javaClass.simpleName)) }
         }
     }
 
