@@ -180,27 +180,19 @@ class LibraryStore(context: Context) : SQLiteOpenHelper(context, "redwave-librar
         upsertBatch(tracks)
     }
     fun countTracks(): Long {
-        // Count unique songs, not SMB path aliases or duplicate copies in the same folder.
-        readableDatabase.rawQuery(
-            "SELECT COUNT(*) FROM (SELECT 1 FROM tracks GROUP BY lower(trim(title)), lower(trim(artist)), lower(trim(album)), lower(rtrim(folder, '/')))",
-            null
-        ).use { it.moveToFirst(); return it.getLong(0) }
+        // This value is used by the Home screen and status bar. A GROUP BY over
+        // every metadata column makes startup crawl on 500k-song libraries.
+        // Count indexed rows here; deduplication remains in search and playback views.
+        readableDatabase.rawQuery("SELECT COUNT(*) FROM tracks", null).use { it.moveToFirst(); return it.getLong(0) }
     }
     fun loadTracks(limit: Int = 100, offset: Int = 0): List<Track> {
         val safeLimit = limit.coerceIn(1, 5000)
         val safeOffset = offset.coerceAtLeast(0)
-        val result = ArrayList<Track>(safeLimit.coerceAtMost(500))
-        // Explicit SQL pagination is consistent across older Android SQLite versions.
-        readableDatabase.rawQuery(
-            "SELECT title,path,folder,artist,album,artwork FROM tracks " +
-                "WHERE path IN (SELECT MIN(path) FROM tracks GROUP BY lower(trim(title)), lower(trim(artist)), lower(trim(album)), lower(rtrim(folder, '/'))) " +
-                "ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?",
-            arrayOf(safeLimit.toString(), safeOffset.toString())
-        ).use { cursor ->
-            while (cursor.moveToNext()) {
-                result.add(Track(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3), cursor.getString(4), cursor.getString(5)))
-            }
-        }
-        return result
+        // Use the title index for a quick preview. The previous DISTINCT/GROUP BY
+        // expression forced a full 500k-row grouping operation even for 8 Home rows.
+        return queryTrackRows(
+            "SELECT title,path,folder,artist,album,artwork FROM tracks ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?",
+            arrayOf(safeLimit.toString(), safeOffset.toString()), safeLimit
+        )
     }
 }
