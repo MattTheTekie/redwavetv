@@ -1,6 +1,10 @@
-# RedWave TV — Android TV SMB music player
+# RedWave TV — AI created Android TV SMB music player. 
+
+As much as I generally don't like AI, using it to free devices from ewaste is something I feel like it should be used for. I could NOT find a app for this specific use case that works with the hardware constraints I have, and yes I made this for personal use. It's a bit buggy but works well enough for me not to care. It took FOREVER of pushing ChatGPT and Perplexity in the correct direction to produce. If you want to contribute or make a fork feel free to do so.
+
 
 A Kotlin Android TV music-player starter targeting Android 7.1 (API 25) and 32-bit ARM (`armeabi-v7a`). The UI uses a dark, red-accented, album-library layout inspired by modern music services; it does not use NetEase branding or assets.
+
 
 ## Current app features
 
