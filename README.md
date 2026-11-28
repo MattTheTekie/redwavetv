@@ -1,4 +1,4 @@
-# RedWave TV — AI created Android TV SMB music player. 
+## RedWave TV — AI created Android TV SMB music player. 
 
 As much as I generally don't like AI, using it to free devices from ewaste is something I feel like it should be used for. I could NOT find a app for this specific use case that works with the hardware constraints I have, and yes I made this for personal use. It's a bit buggy but works well enough for me not to care. It took FOREVER of pushing ChatGPT and Perplexity in the correct direction to produce. If you want to contribute or make a fork feel free to do so.
 
