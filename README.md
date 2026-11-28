@@ -1,4 +1,4 @@
-# RedWave TV — Android TV ARM32 music player
+# RedWave TV — Android TV SMB music player
 
 A Kotlin Android TV music-player starter targeting Android 7.1 (API 25) and 32-bit ARM (`armeabi-v7a`). The UI uses a dark, red-accented, album-library layout inspired by modern music services; it does not use NetEase branding or assets.
 
